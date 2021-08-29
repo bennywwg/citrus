@@ -1,13 +1,12 @@
-pub mod component;
+pub mod element;
 pub mod entity;
-pub mod manager;
 
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    use crate::component::*;
+    use crate::element::*;
     use crate::entity::*;
 
     #[derive(Clone)]
@@ -15,14 +14,14 @@ mod tests {
         pos: [f32; 3]
     }
 
-    impl Component for PosRot { }
+    impl Element for PosRot { }
 
     #[derive(Clone)]
     pub struct Mesh {
-        pub pos: ComponentAddr<PosRot>
+        pub pos: EleAddr<PosRot>
     }
 
-    impl Component for Mesh {
+    impl Element for Mesh {
         fn update(&mut self, _man: &mut Manager, _owner: EntAddr) {
             if let Some(mut pos_ref) = self.pos.get_ref_mut() {
                 (*pos_ref).pos[1] = (*pos_ref).pos[1] + 1.0;
@@ -36,7 +35,7 @@ mod tests {
         val: i32
     }
 
-    impl Component for A {
+    impl Element for A {
         fn update(&mut self, _man: &mut Manager, _owner: EntAddr) {
             println!("A: val = {}", self.val);
             self.val += 10;
@@ -54,11 +53,11 @@ mod tests {
         bal: i32
     }
 
-    impl Component for B { }
+    impl Element for B { }
 
     #[test]
     fn test_ecs() {
-        let mut eh = EntityHolder::new();
+        let eh = EntityHolder::new();
         let mut er = eh.make_addr();
         assert!(er.valid());
     
@@ -70,22 +69,22 @@ mod tests {
     
         let mut e = er.get_ref_mut().expect("Entity should exist");
     
-        let mut c = e.add_component(A { val: 10 }).expect("Expected component addr to be returned after adding");
+        let mut c = e.add_element(A { val: 10 }).expect("Expected element addr to be returned after adding");
         assert!(c.valid());
         
-        assert!(e.query_component_addr::<A>().valid());
-        assert!(!e.query_component_addr::<B>().valid());
+        assert!(e.query_element_addr::<A>().valid());
+        assert!(!e.query_element_addr::<B>().valid());
     
         // address
         {
-            assert!(c.get_ref().expect("Expect Component to exist").val == 10);
-            c.get_ref_mut().expect("Expect Component to exist").val = 20;
-            assert!(c.get_ref().expect("Expect Component to exist").val == 20);
+            assert!(c.get_ref().expect("Expect Element to exist").val == 10);
+            c.get_ref_mut().expect("Expect Element to exist").val = 20;
+            assert!(c.get_ref().expect("Expect Element to exist").val == 20);
             assert!(c.valid());
         }
     
-        e.remove_component::<A>().expect("Expected to remvoe component normally");
-        assert!(!e.query_component_addr::<A>().valid());
+        e.remove_element::<A>().expect("Expected to remvoe element normally");
+        assert!(!e.query_element_addr::<A>().valid());
     
         // address
         {
@@ -101,7 +100,7 @@ mod tests {
             val: Rc<Cell<i32>>
         }
 
-        impl Component for DropTest { }
+        impl Element for DropTest { }
         impl Drop for DropTest {
             fn drop(&mut self) {
                 (*self.val).set(1);
@@ -113,14 +112,23 @@ mod tests {
 
         let mut m = Manager::new();
         let mut e = m.create_entity();
-        let ca = e.get_ref_mut().unwrap().add_component(DropTest { val: val.clone() }).expect("Expected to add component successfully");
+        let ca = e.get_ref_mut().unwrap().add_element(DropTest { val: val.clone() }).expect("Expected to add element successfully");
 
         assert!((*val).get() == 0);
-        m.destroy_component(ca.into());
+        m.destroy_element(ca.into());
         m.update();
         assert!((*val).get() == 1);
         
         m.destroy_entity(e);
         m.update();
-    }   
+    }
+
+    #[test]
+    fn test_manager_query() {
+        let mut m = Manager::new();
+        let mut e = m.create_entity();
+        let ca = e.get_ref_mut().unwrap().add_element(A { val: 1 }).expect("Expected to add element successfully");
+
+        assert!(m.of_type::<A>().len() == 1);
+    }
 }

@@ -2,52 +2,52 @@ use std::{cell::Cell, ops::{Deref, DerefMut}, rc::{Rc, Weak}};
 use std::hash::Hash;
 use std::{collections::HashSet};
 
-use crate::component::*;
+use crate::element::*;
 
 pub struct Entity {
-    components: Vec<ComponentHolder>,
+    elements: Vec<ElementHolder>,
     self_addr: EntAddr
 }
 
 impl Entity {
-    pub fn erased_components(&mut self) -> Vec<ComponentAddrErased> {
-        self.components.iter_mut()
+    pub fn erased_elements(&mut self) -> Vec<EleAddrErased> {
+        self.elements.iter_mut()
         .map(|holder| holder.make_addr_erased())
-        .collect::<Vec<ComponentAddrErased>>()
+        .collect::<Vec<EleAddrErased>>()
     }
-    pub fn add_component<T: Component>(&mut self, val: T) -> Result<ComponentAddr<T>, String> {
-        if self.query_component_addr::<T>().valid() {
-            return Err(format!("Component of type \"{}\" is already present", std::any::type_name::<T>()));
+    pub fn add_element<T: Element>(&mut self, val: T) -> Result<EleAddr<T>, String> {
+        if self.query_element_addr::<T>().valid() {
+            return Err(format!("Element of type \"{}\" is already present", std::any::type_name::<T>()));
         }
-        self.components.push(ComponentHolder::new(val, self.self_addr.clone()));
-        Ok(self.query_component_addr::<T>())
+        self.elements.push(ElementHolder::new(val, self.self_addr.clone()));
+        Ok(self.query_element_addr::<T>())
     }
-    pub fn remove_component<T: Component>(&mut self) -> Result<(), String> {
-        if let Some(index) = self.components.iter_mut().position(|comp| comp.get_id() == std::any::TypeId::of::<T>()) {
-            self.components.remove(index);
+    pub fn remove_element<T: Element>(&mut self) -> Result<(), String> {
+        if let Some(index) = self.elements.iter_mut().position(|comp| comp.get_id() == std::any::TypeId::of::<T>()) {
+            self.elements.remove(index);
             Ok(())
         } else {
-            Err(format!("Component \"{}\" did not exist", std::any::type_name::<T>()) as String)
+            Err(format!("Element \"{}\" did not exist", std::any::type_name::<T>()) as String)
         }
     }
-    pub fn query_component_addr<T: Component>(&mut self) -> ComponentAddr<T> {
-        for comp in self.components.iter_mut() {
+    pub fn query_element_addr<T: Element>(&mut self) -> EleAddr<T> {
+        for comp in self.elements.iter_mut() {
             if comp.get_id() == std::any::TypeId::of::<T>() {
                 return comp.make_addr::<T>();
             }
         }
-        ComponentAddr::new()
+        EleAddr::new()
     }
-    pub fn query_component<T: Component>(&mut self) -> Option<CptRef<T>> {
-        self.query_component_addr().get_ref()
+    pub fn query_element<T: Element>(&mut self) -> Option<EleRef<T>> {
+        self.query_element_addr().get_ref()
     }
-    pub fn query_component_mut<T: Component>(&mut self) -> Option<CptRefMut<T>> {
-        self.query_component_addr().get_ref_mut()
+    pub fn query_element_mut<T: Element>(&mut self) -> Option<EleRefMut<T>> {
+        self.query_element_addr().get_ref_mut()
     }
     
     // TODO: Make this a non-mut function
-    fn find_component_index(&mut self, addr: &ComponentAddrErased) -> Option<usize> {
-        self.components.iter_mut().position(|component| component.make_addr_erased().eq(addr))
+    fn find_element_index(&mut self, addr: &EleAddrErased) -> Option<usize> {
+        self.elements.iter_mut().position(|element| element.make_addr_erased().eq(addr))
     }
 }
 
@@ -60,13 +60,13 @@ impl EntityHolder {
     pub fn new() -> Self {
         Self {
             data: Box::into_raw(Box::new(Entity {
-                components: Vec::new(),
+                elements: Vec::new(),
                 self_addr: EntAddr::new()
             })),
             internal: Rc::new(Cell::new(0))
         }
     }
-    pub fn make_addr(&mut self) -> EntAddr {
+    pub fn make_addr(&self) -> EntAddr {
         let a: *mut Entity = self.data;
         let b = unsafe { &mut *a };
 
@@ -81,8 +81,8 @@ impl Drop for EntityHolder {
     fn drop(&mut self) {
         unsafe { Box::from_raw(self.data) };
         if std::thread::panicking() { return; }
-        assert!(self.internal.get() >= 0, "Component Holder dropped while a mutable reference is held");
-        assert!(self.internal.get() <= 0, "Component Holder dropped while immutable references are held");
+        assert!(self.internal.get() >= 0, "Element Holder dropped while a mutable reference is held");
+        assert!(self.internal.get() <= 0, "Element Holder dropped while immutable references are held");
     }
 }
 
@@ -229,7 +229,7 @@ impl<'a> DerefMut for EntRefMut<'a> {
 pub struct Manager {
     entities: Vec<EntityHolder>,
     entity_destroy_queue: HashSet<EntAddr>,
-    component_destroy_queue: HashSet<ComponentAddrErased>
+    element_destroy_queue: HashSet<EleAddrErased>
 }
 
 impl Manager {
@@ -237,7 +237,7 @@ impl Manager {
         Self {
             entities: Vec::new(),
             entity_destroy_queue: HashSet::new(),
-            component_destroy_queue: HashSet::new()
+            element_destroy_queue: HashSet::new()
         }
     }
     // TODO: Make this a non-mut function
@@ -256,15 +256,15 @@ impl Manager {
         }
 
         {
-            let cloned_destroy_queue = self.component_destroy_queue.clone();
-            self.component_destroy_queue.clear();
+            let cloned_destroy_queue = self.element_destroy_queue.clone();
+            self.element_destroy_queue.clear();
             for to_destroy in cloned_destroy_queue.iter() {
                 if let Some(destroy_index) = self.find_ent_index(&to_destroy.get_owner()) {
                     let mut addr = self.entities[destroy_index].make_addr();
                     let mut r = addr.get_ref_mut().unwrap();
                     let ent_raw = r.deref_mut();
-                    if let Some(component_index) = ent_raw.find_component_index(to_destroy) {
-                        ent_raw.components.remove(component_index);
+                    if let Some(element_index) = ent_raw.find_element_index(to_destroy) {
+                        ent_raw.elements.remove(element_index);
                     }
                 }
             }
@@ -276,11 +276,11 @@ impl Manager {
             let mut ent_addr = self.entities[index].make_addr();
 
             {
-                let mut component_index = 0 as usize;
-                let mut components = ent_addr.get_ref_mut().unwrap().erased_components();
-                while component_index < components.len() {
-                    components[component_index].get_ref_mut().unwrap().update(self, ent_addr.clone());
-                    component_index += 1;
+                let mut element_index = 0 as usize;
+                let mut elements = ent_addr.get_ref_mut().unwrap().erased_elements();
+                while element_index < elements.len() {
+                    elements[element_index].get_ref_mut().unwrap().update(self, ent_addr.clone());
+                    element_index += 1;
                 }
             }
 
@@ -291,8 +291,11 @@ impl Manager {
 
         self.resolve();
     }
-    pub fn of_type<T: Component>() -> Vec<EntAddr> {
-        todo!();
+    pub fn of_type<T: Element>(&mut self) -> Vec<EleAddr<T>> {
+        self.entities.iter_mut()
+        .filter(|ent| ent.make_addr().get_ref_mut().unwrap().query_element_addr::<T>().valid() )
+        .map(|ent| { ent.make_addr().get_ref_mut().unwrap().query_element_addr::<T>() })
+        .collect()
     }
     pub fn create_entity(&mut self) -> EntAddr {
         self.entities.push(EntityHolder::new());
@@ -303,7 +306,7 @@ impl Manager {
     pub fn destroy_entity(&mut self, addr: EntAddr) {
         self.entity_destroy_queue.insert(addr);
     }
-    pub fn destroy_component(&mut self, addr: ComponentAddrErased) {
-        self.component_destroy_queue.insert(addr);
+    pub fn destroy_element(&mut self, addr: EleAddrErased) {
+        self.element_destroy_queue.insert(addr);
     }
 }
