@@ -1,4 +1,5 @@
-use std::{cell::Cell, ops::{Deref, DerefMut}, rc::{Rc, Weak}};
+use std::{cell::Cell, ops::{Deref, DerefMut}, rc::{Rc, Weak}, slice::IterMut};
+use std::hash::Hash;
 
 use crate::component::*;
 
@@ -7,6 +8,9 @@ pub struct Entity {
 }
 
 impl Entity {
+    pub fn components_iter_mut(&mut self) -> IterMut<ComponentHolder> {
+        self.components.iter_mut()
+    }
     pub fn add_component<T: Component>(&mut self, val: T) -> Result<ComponentAddr<T>, String> {
         if self.query_component_addr::<T>().valid() {
             return Err(format!("Component of type \"{}\" is already present", std::any::type_name::<T>()));
@@ -25,7 +29,7 @@ impl Entity {
     pub fn query_component_addr<T: Component>(&mut self) -> ComponentAddr<T> {
         for comp in self.components.iter_mut() {
             if comp.get_id() == std::any::TypeId::of::<T>() {
-                return comp.make_addr::<T>().expect("Component ID matched but creating Addr failed");
+                return comp.make_addr::<T>();
             }
         }
         ComponentAddr::new()
@@ -76,6 +80,20 @@ impl Drop for EntityHolder {
 pub struct EntAddr {
     data: *mut Entity,
     internal: Weak<Cell<i64>>
+}
+
+impl PartialEq for EntAddr {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
+}
+
+impl Eq for EntAddr { }
+
+impl Hash for EntAddr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.data.hash(state);
+    }
 }
 
 impl EntAddr {

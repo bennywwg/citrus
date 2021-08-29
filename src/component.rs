@@ -3,44 +3,50 @@ use std::rc::{Rc, Weak};
 use std::cell::{Cell};
 use std::any::Any;
 
-use crate::entity::*;
-
 pub trait Component : 'static {
-    fn on_attach_to(&self, ent: &Entity);
-    fn on_update(&self);
-    fn on_detach(&self);
-    fn clone_component(&self) -> ComponentHolder;
+    fn update(&self);
 }
 
 pub struct ComponentHolder {
     data: *mut dyn Any, // must be cleaned up with a Box::from_raw
+    component_ptr: &'static mut dyn Component,
     internal: Rc<Cell<i64>>,
     id: std::any::TypeId
 }
 
 impl ComponentHolder {
     pub fn new<T: Component>(val: T) -> Self {
-        Self {
+        let mut res = Self {
             data: Box::into_raw(Box::new(val)),
+            component_ptr: unsafe { std::mem::transmute([1,2,3,4]) }, // value overwritten later, just ignore and don't use for now 
             internal: Rc::new(Cell::new(0)),
             id: std::any::TypeId::of::<T>()
-        }
+        };
+        let mr = unsafe {
+            std::mem::transmute::<&mut dyn Component, &'static mut dyn Component>(res.make_addr::<T>().get_ref_mut().unwrap().deref_mut())
+        };
+        let v = mr as &mut dyn Component;
+        res.component_ptr = v;
+        res
     }
     pub fn get_id(&self) -> std::any::TypeId {
         self.id
     }
-    pub fn make_addr<T: Component>(&mut self) -> Option<ComponentAddr<T>> {
-        //let mut extended_val = unsafe { std::mem::transmute::<&mut ComponentHolder, &'static mut ComponentHolder>(val) };
-        //let mut extended_data = extended_val.data;
+    pub fn get_dyn_ref_mut(&mut self) -> &mut dyn Component {
+        self.component_ptr
+    }
+    pub fn make_addr<T: Component>(&mut self) -> ComponentAddr<T> {
         let a: *mut dyn Any = self.data;
         let b = unsafe { &mut *a };
-        let c = b.downcast_mut::<T>()?;
+        let c = match b.downcast_mut::<T>() {
+            Some(c) => c,
+            None => return ComponentAddr::new()
+        };
 
-        Some(ComponentAddr::<T> {
-            //data: unsafe { std::mem::transmute::<&mut T, &'static mut T>(c) }, // rewrite the lifetime
+        ComponentAddr::<T> {
             data: c,
             internal: Rc::downgrade(&self.internal)
-        })
+        }
     }
 }
 

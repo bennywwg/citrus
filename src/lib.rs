@@ -8,51 +8,31 @@ mod tests {
     use crate::entity::*;
     use crate::manager::*;
 
+    #[derive(Clone)]
     struct A {
         val: i32
     }
 
     impl Component for A {
-        fn on_attach_to(&self, _ent: &Entity) {
-            todo!()
-        }
-
-        fn on_update(&self) {
-            todo!()
-        }
-
-        fn on_detach(&self) {
-            todo!()
-        }
-
-        fn clone_component(&self) -> ComponentHolder {
-            ComponentHolder::new(Self {
-                val: self.val
-            })
+        fn update(&self) {
+            println!("val = {}", self.val);
         }
     }
 
+    impl Drop for A {
+        fn drop(&mut self) {
+            println!("A dropped");
+        }
+    }
+
+    #[derive(Clone)]
     struct B {
         bal: i32
     }
 
     impl Component for B {
-        fn on_attach_to(&self, _ent: &Entity) {
+        fn update(&self) {
             todo!()
-        }
-
-        fn on_update(&self) {
-            todo!()
-        }
-
-        fn on_detach(&self) {
-            todo!()
-        }
-
-        fn clone_component(&self) -> ComponentHolder {
-            ComponentHolder::new(Self {
-                bal: self.bal
-            })
         }
     }
 
@@ -98,6 +78,10 @@ mod tests {
     #[test]
     fn test_ecs_manager() {
         let mut m = Manager::new();
-        m.create_entity();
+        let mut e = m.create_entity();
+        e.get_ref_mut().unwrap().add_component(A { val: -50 }).expect("Expected to add component successfully");
+        m.update();
+        m.destroy_entity(e);
+        m.update();
     }   
 }
