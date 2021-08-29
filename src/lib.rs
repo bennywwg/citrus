@@ -9,13 +9,21 @@ mod tests {
     use crate::manager::*;
 
     #[derive(Clone)]
+    pub struct PosRot {
+        pos: [f32; 3]
+    }
+
+    impl Component for PosRot { }
+
+    #[derive(Clone)]
     struct A {
         val: i32
     }
 
     impl Component for A {
-        fn update(&self) {
-            println!("val = {}", self.val);
+        fn update(&mut self, _man: &mut Manager, _owner: EntAddr) {
+            println!("A: val = {}", self.val);
+            self.val += 10;
         }
     }
 
@@ -30,11 +38,7 @@ mod tests {
         bal: i32
     }
 
-    impl Component for B {
-        fn update(&self) {
-            todo!()
-        }
-    }
+    impl Component for B { }
 
     #[test]
     fn test_ecs() {

@@ -1,21 +1,24 @@
-use std::{cell::Cell, ops::{Deref, DerefMut}, rc::{Rc, Weak}, slice::IterMut};
+use std::{cell::Cell, ops::{Deref, DerefMut}, rc::{Rc, Weak}};
 use std::hash::Hash;
 
 use crate::component::*;
 
 pub struct Entity {
-    components: Vec<ComponentHolder>
+    components: Vec<ComponentHolder>,
+    self_addr: EntAddr
 }
 
 impl Entity {
-    pub fn components_iter_mut(&mut self) -> IterMut<ComponentHolder> {
+    pub fn erased_components(&mut self) -> Vec<ComponentAddrErased> {
         self.components.iter_mut()
+        .map(|holder| holder.make_addr_erased())
+        .collect::<Vec<ComponentAddrErased>>()
     }
     pub fn add_component<T: Component>(&mut self, val: T) -> Result<ComponentAddr<T>, String> {
         if self.query_component_addr::<T>().valid() {
             return Err(format!("Component of type \"{}\" is already present", std::any::type_name::<T>()));
         }
-        self.components.push(ComponentHolder::new(val));
+        self.components.push(ComponentHolder::new(val, self.self_addr.clone()));
         Ok(self.query_component_addr::<T>())
     }
     pub fn remove_component<T: Component>(&mut self) -> Result<(), String> {
@@ -51,7 +54,8 @@ impl EntityHolder {
     pub fn new() -> Self {
         Self {
             data: Box::into_raw(Box::new(Entity {
-                components: Vec::new()
+                components: Vec::new(),
+                self_addr: EntAddr::new()
             })),
             internal: Rc::new(Cell::new(0))
         }
@@ -97,6 +101,12 @@ impl Hash for EntAddr {
 }
 
 impl EntAddr {
+    pub fn new() -> Self {
+        Self {
+            data: std::ptr::null_mut(),
+            internal: Weak::new()
+        }
+    }
     pub fn valid(&self) -> bool {
         self.internal.strong_count() > 0
     }

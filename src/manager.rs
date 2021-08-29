@@ -1,6 +1,6 @@
-use std::{collections::HashSet, ops::Index};
+use std::{collections::HashSet};
 
-use crate::entity::*;
+use crate::{component::Component, entity::*};
 
 pub struct Manager {
     entities: Vec<EntityHolder>,
@@ -21,12 +21,18 @@ impl Manager {
     pub fn update(&mut self) {
         let mut index = 0 as usize;
         while index < self.entities.len() {
-            let ent = &mut self.entities[index];
-            for component in ent.make_addr().get_ref_mut().unwrap().components_iter_mut() {
-                component.get_dyn_ref_mut().update();
+            let mut ent_addr = self.entities[index].make_addr();
+
+            {
+                let mut component_index = 0 as usize;
+                let mut components = ent_addr.get_ref_mut().unwrap().erased_components();
+                while component_index < components.len() {
+                    components[component_index].get_ref_mut().unwrap().update(self, ent_addr.clone());
+                    component_index += 1;
+                }
             }
 
-            // TODO: Make this cleaner if find_ent_index is made non-mut
+            
             let cloned_destroy_queue = self.destroy_queue.clone();
             self.destroy_queue.clear();
             for to_destroy in cloned_destroy_queue.iter() {
@@ -36,6 +42,9 @@ impl Manager {
             }
             index += 1;
         }
+    }
+    pub fn of_type<T: Component>() -> Vec<EntAddr> {
+        todo!();
     }
     pub fn create_entity(&mut self) -> EntAddr {
         self.entities.push(EntityHolder::new());
