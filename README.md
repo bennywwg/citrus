@@ -14,6 +14,9 @@ These are weak pointers that wrap either an instance of a component or entity, r
 #### `ComponentRef<T>`, `ComponentRefMut<T>`, `EntRef`, `EntRefMut`
 These are very similar to the `Ref<T>` and `RefMut<T>` objects returned by a `RefCell`; use them as references to the underlying objects.
 
+#### Diagram
+![Diagram](https://raw.githubusercontent.com/bennywwg/ecs/master/diagram.png?raw=true)
+
 #### Manager
 TODO!
 
