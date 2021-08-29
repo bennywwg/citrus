@@ -11,7 +11,7 @@ These act as strong pointers that wrap a dynamically typed `Element` or `Entity`
 #### `CompononentAddr<T>`, `EntAddr`
 These are weak pointers that wrap either an instance of a element or entity, respectively. They become invalid if the wrapped object is dropped, and are then unable to produce references.
 
-#### `ElementRef<T>`, `ElementRefMut<T>`, `EntRef`, `EntRefMut`
+#### `EleRef<T>`, `EleRefMut<T>`, `EntRef`, `EntRefMut`
 These are very similar to the `Ref<T>` and `RefMut<T>` objects returned by a `RefCell`; use them as references to the underlying objects.
 
 #### Diagram
