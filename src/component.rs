@@ -2,8 +2,19 @@ use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 use std::cell::{Cell};
 use std::any::Any;
+use std::hash::Hash;
 
-use crate::{entity::EntAddr, manager::Manager};
+use crate::entity::*;
+
+// Utility functions
+fn static_dyn_ref_null() -> &'static mut dyn Component {
+    unsafe { std::mem::transmute([0, 0, 0, 0]) }
+}
+fn static_dyn_ref_from_concrete<T: Component>(concrete: &mut T) -> &'static mut dyn Component {
+    (unsafe {
+        std::mem::transmute::<&mut dyn Component, &'static mut dyn Component>(concrete)
+    }) as &mut dyn Component
+}
 
 pub trait Component : 'static {
     fn update(&mut self, _man: &mut Manager, _owner: EntAddr) { }
@@ -21,16 +32,12 @@ impl ComponentHolder {
     pub fn new<T: Component>(val: T, owner: EntAddr) -> Self {
         let mut res = Self {
             data: Box::into_raw(Box::new(val)),
-            component_ptr: unsafe { std::mem::transmute([1,2,3,4]) }, // value overwritten later, just ignore and don't use for now 
+            component_ptr: static_dyn_ref_null(), // value overwritten later, just ignore and don't use for now 
             internal: Rc::new(Cell::new(0)),
             id: std::any::TypeId::of::<T>(),
             owner
         };
-        let mr = unsafe {
-            std::mem::transmute::<&mut dyn Component, &'static mut dyn Component>(res.make_addr::<T>().get_ref_mut().unwrap().deref_mut())
-        };
-        let v = mr as &mut dyn Component;
-        res.component_ptr = v;
+        res.component_ptr = static_dyn_ref_from_concrete(res.make_addr::<T>().get_ref_mut().unwrap().deref_mut());
         res
     }
     pub fn get_ent(&self) -> EntAddr {
@@ -75,11 +82,15 @@ impl Drop for ComponentHolder {
 }
 
 // Component Ref
-#[derive(Clone)]
 pub struct ComponentAddr<T: Component> {
     data: *mut T,
     internal: Weak<Cell<i64>>,
     owner: EntAddr
+}
+impl<T: Component> Clone for ComponentAddr<T> {
+    fn clone(&self) -> Self {
+        Self { data: self.data.clone(), internal: self.internal.clone(), owner: self.owner.clone() }
+    }
 }
 impl<T: Component> ComponentAddr<T> {
     pub fn new() -> Self {
@@ -242,6 +253,9 @@ impl ComponentAddrErased {
             None => None
         }
     }
+    pub fn get_owner(&self) -> EntAddr {
+        self.owner.clone()
+    }
 }
 
 pub struct CptRefErased<'a> {
@@ -319,5 +333,35 @@ impl<'a> CptRefErasedMut<'a> {
         }
 
         Self { data, internal }
+    }
+}
+
+impl<T: Component> From<ComponentAddr<T>> for ComponentAddrErased {
+    fn from(other: ComponentAddr<T>) -> Self {
+        match other.valid() {
+            true => {
+                let mut other_mut = other.clone();
+                ComponentAddrErased {
+                    data: static_dyn_ref_from_concrete(other_mut.get_ref_mut().unwrap().deref_mut()),
+                    internal: other.internal.clone(),
+                    owner: other.owner.clone()
+                }
+            },
+            false => ComponentAddrErased::new()
+        }
+    }
+}
+
+impl PartialEq for ComponentAddrErased {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
+}
+
+impl Eq for ComponentAddrErased { }
+
+impl Hash for ComponentAddrErased {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.data.hash(state);
     }
 }

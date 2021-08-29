@@ -1,5 +1,6 @@
 use std::{cell::Cell, ops::{Deref, DerefMut}, rc::{Rc, Weak}};
 use std::hash::Hash;
+use std::{collections::HashSet};
 
 use crate::component::*;
 
@@ -42,6 +43,11 @@ impl Entity {
     }
     pub fn query_component_mut<T: Component>(&mut self) -> Option<CptRefMut<T>> {
         self.query_component_addr().get_ref_mut()
+    }
+    
+    // TODO: Make this a non-mut function
+    fn find_component_index(&mut self, addr: &ComponentAddrErased) -> Option<usize> {
+        self.components.iter_mut().position(|component| component.make_addr_erased().eq(addr))
     }
 }
 
@@ -216,5 +222,88 @@ impl<'a> Deref for EntRefMut<'a> {
 impl<'a> DerefMut for EntRefMut<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.data
+    }
+}
+
+// Manager
+pub struct Manager {
+    entities: Vec<EntityHolder>,
+    entity_destroy_queue: HashSet<EntAddr>,
+    component_destroy_queue: HashSet<ComponentAddrErased>
+}
+
+impl Manager {
+    pub fn new() -> Self {
+        Self {
+            entities: Vec::new(),
+            entity_destroy_queue: HashSet::new(),
+            component_destroy_queue: HashSet::new()
+        }
+    }
+    // TODO: Make this a non-mut function
+    fn find_ent_index(&mut self, addr: &EntAddr) -> Option<usize> {
+        self.entities.iter_mut().position(|ent| ent.make_addr().eq(addr))
+    }
+    fn resolve(&mut self) {
+        {
+            let cloned_destroy_queue = self.entity_destroy_queue.clone();
+            self.entity_destroy_queue.clear();
+            for to_destroy in cloned_destroy_queue.iter() {
+                if let Some(destroy_index) = self.find_ent_index(to_destroy) {
+                    self.entities.remove(destroy_index);
+                }
+            }
+        }
+
+        {
+            let cloned_destroy_queue = self.component_destroy_queue.clone();
+            self.component_destroy_queue.clear();
+            for to_destroy in cloned_destroy_queue.iter() {
+                if let Some(destroy_index) = self.find_ent_index(&to_destroy.get_owner()) {
+                    let mut addr = self.entities[destroy_index].make_addr();
+                    let mut r = addr.get_ref_mut().unwrap();
+                    let ent_raw = r.deref_mut();
+                    if let Some(component_index) = ent_raw.find_component_index(to_destroy) {
+                        ent_raw.components.remove(component_index);
+                    }
+                }
+            }
+        }
+    }
+    pub fn update(&mut self) {
+        let mut index = 0 as usize;
+        while index < self.entities.len() {
+            let mut ent_addr = self.entities[index].make_addr();
+
+            {
+                let mut component_index = 0 as usize;
+                let mut components = ent_addr.get_ref_mut().unwrap().erased_components();
+                while component_index < components.len() {
+                    components[component_index].get_ref_mut().unwrap().update(self, ent_addr.clone());
+                    component_index += 1;
+                }
+            }
+
+            self.resolve();
+
+            index += 1;
+        }
+
+        self.resolve();
+    }
+    pub fn of_type<T: Component>() -> Vec<EntAddr> {
+        todo!();
+    }
+    pub fn create_entity(&mut self) -> EntAddr {
+        self.entities.push(EntityHolder::new());
+        let mut res = self.entities.last_mut().unwrap().make_addr();
+        res.get_ref_mut().expect("Entity that was just created should exist").self_addr = res.clone();
+        res
+    }
+    pub fn destroy_entity(&mut self, addr: EntAddr) {
+        self.entity_destroy_queue.insert(addr);
+    }
+    pub fn destroy_component(&mut self, addr: ComponentAddrErased) {
+        self.component_destroy_queue.insert(addr);
     }
 }
