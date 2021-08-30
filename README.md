@@ -1,4 +1,4 @@
-A simple and safe Entity Element System framework for rust.
+A simple and safe Entity Component (aka Element) System framework for rust.
 
 # Structure
 
@@ -15,13 +15,9 @@ These are weak pointers that wrap either an instance of a element or entity, res
 These are very similar to the `Ref<T>` and `RefMut<T>` objects returned by a `RefCell`; use them as references to the underlying objects.
 
 #### Diagram
+This diagram visually illustrates the paradigm described above.
+
 ![Diagram](https://raw.githubusercontent.com/bennywwg/ecs/master/diagram.png?raw=true)
 
 #### Manager
-TODO!
-
-# Future Plans
-
-There is one flaw in this system that can cause a `panic!`: dropping an `Entity`, for example, while a reference to it is held. And unfortunately, this situation is not unusual and actually comes up very frequently in entity element system codebases. The future implementation of `Manager` intends to address this. Destroying `Element`s and `Entity`s will be prevented from occuring in userspace code. Rather, users will be able to enque an `EntAddr` or `EleAddr<T>` for deletion, which will then be destroyed in a post-pass cycle, during which time it is impossible for references to be held. `Manager` will manage this behavior.
-
-After fixing this issue, it should not be possible for erroneous use of this library to induce `panic!` in any way.
+Manages deferring the destruction of `ElementHolder` and `EntityHolder` so that no references can be held to the underlying objects at the time they are dropped.
