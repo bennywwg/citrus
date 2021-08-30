@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
-use std::cell::{Cell};
+use std::cell::{Cell, RefCell};
 use std::any::Any;
 use std::hash::Hash;
 
@@ -11,9 +11,7 @@ fn static_dyn_ref_null() -> &'static mut dyn Element {
     unsafe { std::mem::transmute([0, 0, 0, 0]) }
 }
 fn static_dyn_ref_from_concrete<T: Element>(concrete: &mut T) -> &'static mut dyn Element {
-    (unsafe {
-        std::mem::transmute::<&mut dyn Element, &'static mut dyn Element>(concrete)
-    }) as &mut dyn Element
+    unsafe { std::mem::transmute(concrete as &mut dyn Element) }
 }
 
 pub trait Element : 'static {
@@ -21,7 +19,7 @@ pub trait Element : 'static {
 }
 
 pub struct ElementHolder {
-    data: *mut dyn Any, // must be cleaned up with a Box::from_raw
+    data: Box<RefCell<dyn Any>>, // must be cleaned up with a Box::from_raw
     element_ptr: &'static mut dyn Element,
     internal: Rc<Cell<i64>>,
     id: std::any::TypeId,
@@ -31,7 +29,7 @@ pub struct ElementHolder {
 impl ElementHolder {
     pub fn new<T: Element>(val: T, owner: EntAddr) -> Self {
         let mut res = Self {
-            data: Box::into_raw(Box::new(val)),
+            data: Box::new(RefCell::new(val)),
             element_ptr: static_dyn_ref_null(), // value overwritten later, just ignore and don't use for now 
             internal: Rc::new(Cell::new(0)),
             id: std::any::TypeId::of::<T>(),
@@ -46,13 +44,14 @@ impl ElementHolder {
     pub fn get_id(&self) -> std::any::TypeId {
         self.id
     }
+    pub fn get_dyn_ref(&self) -> &dyn Element {
+        self.element_ptr
+    }
     pub fn get_dyn_ref_mut(&mut self) -> &mut dyn Element {
         self.element_ptr
     }
-    pub fn make_addr<T: Element>(&self) -> EleAddr<T> {
-        let a: *mut dyn Any = self.data;
-        let b = unsafe { &mut *a };
-        let c = match b.downcast_mut::<T>() {
+    pub fn make_addr<T: Element>(&mut self) -> EleAddr<T> {
+        let c = match (&mut *(self.data.get_mut())).downcast_mut::<T>() {
             Some(c) => c,
             None => return EleAddr::new()
         };
@@ -74,7 +73,6 @@ impl ElementHolder {
 
 impl Drop for ElementHolder {
     fn drop(&mut self) {
-        unsafe { Box::from_raw(self.data) };
         if std::thread::panicking() { return; }
         assert!(self.internal.get() >= 0, "Element Holder dropped while a mutable reference is held");
         assert!(self.internal.get() <= 0, "Element Holder dropped while immutable references are held");

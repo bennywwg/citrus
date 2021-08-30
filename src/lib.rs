@@ -42,12 +42,6 @@ mod tests {
         }
     }
 
-    impl Drop for A {
-        fn drop(&mut self) {
-            println!("A dropped");
-        }
-    }
-
     #[derive(Clone)]
     struct B {
         bal: i32
@@ -127,7 +121,7 @@ mod tests {
     fn test_manager_query() {
         let mut m = Manager::new();
         let mut e = m.create_entity();
-        let ca = e.get_ref_mut().unwrap().add_element(A { val: 1 }).expect("Expected to add element successfully");
+        e.get_ref_mut().unwrap().add_element(A { val: 1 }).expect("Expected to add element successfully");
 
         assert!(m.of_type::<A>().len() == 1);
     }
