@@ -1,0 +1,11 @@
+[package]
+name = "ecs"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+imgui = { version = "0.7.0", optional = true }
+
+[features]
+default = ["gen-imgui"]
+gen-imgui = ["imgui"]

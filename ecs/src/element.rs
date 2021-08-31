@@ -16,6 +16,10 @@ fn static_dyn_ref_from_concrete<T: Element>(concrete: &mut T) -> &'static mut dy
 
 pub trait Element : 'static {
     fn update(&mut self, _man: &mut Manager, _owner: EntAddr) { }
+    #[cfg(feature = "gen-imgui")]
+    fn fill_ui(&mut self, ui: &mut imgui::Ui) {
+        ui.text(imgui::im_str!("Unimplemented ui"));
+    }
 }
 
 pub struct ElementHolder {
