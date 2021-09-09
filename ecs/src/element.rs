@@ -17,7 +17,7 @@ fn static_dyn_ref_from_concrete<T: Element>(concrete: &mut T) -> &'static mut dy
 pub trait Element : 'static {
     fn update(&mut self, _man: &mut Manager, _owner: EntAddr) { }
     #[cfg(feature = "gen-imgui")]
-    fn fill_ui(&mut self, ui: &mut imgui::Ui) {
+    fn fill_ui(&mut self, ui: &imgui::Ui) {
         ui.text(imgui::im_str!("Unimplemented ui"));
     }
 }
@@ -31,7 +31,11 @@ pub struct ElementHolder {
 }
 
 impl ElementHolder {
-    pub fn new<T: Element>(val: T, owner: EntAddr) -> Self {
+    pub fn new<T>(val: T, owner: EntAddr) -> Self  where
+        T: Element,
+        T: serde::Serialize,
+        T: serde::Deserialize<'static>
+        {
         let mut res = Self {
             data: Box::new(RefCell::new(val)),
             element_ptr: static_dyn_ref_null(), // value overwritten later, just ignore and don't use for now 
@@ -54,7 +58,11 @@ impl ElementHolder {
     pub fn get_dyn_ref_mut(&mut self) -> &mut dyn Element {
         self.element_ptr
     }
-    pub fn make_addr<T: Element>(&mut self) -> EleAddr<T> {
+    pub fn make_addr<T>(&mut self) -> EleAddr<T>  where
+        T: Element,
+        T: serde::Serialize,
+        T: serde::Deserialize<'static>
+    {
         let c = match (&mut *(self.data.get_mut())).downcast_mut::<T>() {
             Some(c) => c,
             None => return EleAddr::new()
@@ -84,17 +92,27 @@ impl Drop for ElementHolder {
 }
 
 // Element Ref
-pub struct EleAddr<T: Element> {
+pub struct EleAddr<T>  where
+    T: Element,
+    T: serde::Serialize,
+    T: serde::Deserialize<'static>
+{
     data: *mut T,
     internal: Weak<Cell<i64>>,
     owner: EntAddr
 }
-impl<T: Element> Clone for EleAddr<T> {
+impl<T> Clone for EleAddr<T>  where
+    T: Element,
+    T: serde::Serialize,
+    T: serde::Deserialize<'static> {
     fn clone(&self) -> Self {
         Self { data: self.data.clone(), internal: self.internal.clone(), owner: self.owner.clone() }
     }
 }
-impl<T: Element> EleAddr<T> {
+impl<T> EleAddr<T>  where
+T: Element,
+T: serde::Serialize,
+T: serde::Deserialize<'static> {
     pub fn new() -> Self {
         Self {
             data: std::ptr::null_mut(),
@@ -338,7 +356,10 @@ impl<'a> EleRefErasedMut<'a> {
     }
 }
 
-impl<T: Element> From<EleAddr<T>> for EleAddrErased {
+impl<T> From<EleAddr<T>> for EleAddrErased  where
+T: Element,
+T: serde::Serialize,
+T: serde::Deserialize<'static> {
     fn from(other: EleAddr<T>) -> Self {
         match other.valid() {
             true => {

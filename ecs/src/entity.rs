@@ -1,12 +1,16 @@
-use std::{cell::Cell, ops::{Deref, DerefMut}, rc::{Rc, Weak}};
+use std::{any::TypeId, cell::Cell, ops::{Deref, DerefMut}, rc::{Rc, Weak}};
 use std::hash::Hash;
 use std::{collections::HashSet};
+
+use uuid::Uuid;
 
 use crate::element::*;
 
 pub struct Entity {
     elements: Vec<ElementHolder>,
-    self_addr: EntAddr
+    self_addr: EntAddr,
+    id: Uuid,
+    pub name: String,
 }
 
 impl Entity {
@@ -15,7 +19,10 @@ impl Entity {
         .map(|holder| holder.make_addr_erased())
         .collect::<Vec<EleAddrErased>>()
     }
-    pub fn add_element<T: Element>(&mut self, val: T) -> Result<EleAddr<T>, String> {
+    pub fn add_element<T>(&mut self, val: T) -> Result<EleAddr<T>, String>  where
+    T: Element,
+    T: serde::Serialize,
+    T: serde::Deserialize<'static> {
         if self.query_element_addr::<T>().valid() {
             return Err(format!("Element of type \"{}\" is already present", std::any::type_name::<T>()));
         }
@@ -30,7 +37,27 @@ impl Entity {
             Err(format!("Element \"{}\" did not exist", std::any::type_name::<T>()) as String)
         }
     }
-    pub fn query_element_addr<T: Element>(&mut self) -> EleAddr<T> {
+    pub fn query_element_addr_by_id(&mut self, id: TypeId) -> EleAddrErased {
+        for comp in self.elements.iter_mut() {
+            if comp.get_id() == id {
+                return comp.make_addr_erased();
+            }
+        }
+        EleAddrErased::new()
+    }
+    
+    pub fn remove_element_by_id(&mut self, id: TypeId) -> Result<(), String> {
+        if let Some(index) = self.elements.iter_mut().position(|comp| comp.get_id() == id) {
+            self.elements.remove(index);
+            Ok(())
+        } else {
+            Err("Element did not exist".to_string())
+        }
+    }
+    pub fn query_element_addr<T>(&mut self) -> EleAddr<T>  where
+    T: Element,
+    T: serde::Serialize,
+    T: serde::Deserialize<'static> {
         for comp in self.elements.iter_mut() {
             if comp.get_id() == std::any::TypeId::of::<T>() {
                 return comp.make_addr::<T>();
@@ -38,16 +65,31 @@ impl Entity {
         }
         EleAddr::new()
     }
-    pub fn query_element<T: Element>(&mut self) -> Option<EleRef<T>> {
+    pub fn query_element<T>(&mut self) -> Option<EleRef<T>>  where
+    T: Element,
+    T: serde::Serialize,
+    T: serde::Deserialize<'static> {
         self.query_element_addr().get_ref()
     }
-    pub fn query_element_mut<T: Element>(&mut self) -> Option<EleRefMut<T>> {
+    pub fn query_element_mut<T>(&mut self) -> Option<EleRefMut<T>>  where
+    T: Element,
+    T: serde::Serialize,
+    T: serde::Deserialize<'static> {
         self.query_element_addr().get_ref_mut()
     }
     
     // TODO: Make this a non-mut function
     fn find_element_index(&mut self, addr: &EleAddrErased) -> Option<usize> {
         self.elements.iter_mut().position(|element| element.make_addr_erased().eq(addr))
+    }
+
+    pub fn get_id(&self) -> Uuid {
+        self.id
+    }
+
+    #[cfg(feature = "gen-imgui")]
+    pub fn fill_ui(&mut self, ui: &mut imgui::Ui) {
+        ui.text(imgui::im_str!("Entity ui"));
     }
 }
 
@@ -57,11 +99,13 @@ pub struct EntityHolder {
 }
 
 impl EntityHolder {
-    pub fn new() -> Self {
+    pub fn new(name: String) -> Self {
         Self {
             data: Box::into_raw(Box::new(Entity {
                 elements: Vec::new(),
-                self_addr: EntAddr::new()
+                self_addr: EntAddr::new(),
+                id: Uuid::new_v4(),
+                name
             })),
             internal: Rc::new(Cell::new(0))
         }
@@ -130,7 +174,7 @@ impl EntAddr {
             None => None
         }
     }
-    pub fn get_ref_mut(&mut self) -> Option<EntRefMut> {
+    pub fn get_ref_mut(&self) -> Option<EntRefMut> {
         match self.internal.upgrade() {
             Some(rc) => {
                 if rc.get() == 0 {
@@ -244,7 +288,7 @@ impl Manager {
     fn find_ent_index(&mut self, addr: &EntAddr) -> Option<usize> {
         self.entities.iter_mut().position(|ent| ent.make_addr().eq(addr))
     }
-    fn resolve(&mut self) {
+    pub fn resolve(&mut self) {
         {
             let cloned_destroy_queue = self.entity_destroy_queue.clone();
             self.entity_destroy_queue.clear();
@@ -291,14 +335,17 @@ impl Manager {
 
         self.resolve();
     }
-    pub fn of_type<T: Element>(&mut self) -> Vec<EleAddr<T>> {
+    pub fn of_type<T>(&mut self) -> Vec<EleAddr<T>>  where
+    T: Element,
+    T: serde::Serialize,
+    T: serde::Deserialize<'static> {
         self.entities.iter_mut()
         .filter(|ent| ent.make_addr().get_ref_mut().unwrap().query_element_addr::<T>().valid() )
         .map(|ent| { ent.make_addr().get_ref_mut().unwrap().query_element_addr::<T>() })
         .collect()
     }
-    pub fn create_entity(&mut self) -> EntAddr {
-        self.entities.push(EntityHolder::new());
+    pub fn create_entity(&mut self, name: String) -> EntAddr {
+        self.entities.push(EntityHolder::new(name));
         let mut res = self.entities.last_mut().unwrap().make_addr();
         res.get_ref_mut().expect("Entity that was just created should exist").self_addr = res.clone();
         res
@@ -308,5 +355,8 @@ impl Manager {
     }
     pub fn destroy_element(&mut self, addr: EleAddrErased) {
         self.element_destroy_queue.insert(addr);
+    }
+    pub fn all_entities(&mut self) -> Vec<EntAddr> {
+        self.entities.iter().map(|holder| holder.make_addr()).collect()
     }
 }

@@ -6,6 +6,8 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
+
+    use serde::*;
     use crate::element::*;
     use crate::entity::*;
 
@@ -16,7 +18,7 @@ mod tests {
 
     impl Element for PosRot { }
 
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     pub struct Mesh {
         pub pos: EleAddr<PosRot>
     }
@@ -51,7 +53,7 @@ mod tests {
 
     #[test]
     fn test_ecs() {
-        let eh = EntityHolder::new();
+        let eh = EntityHolder::new("test entity".to_string());
         let mut er = eh.make_addr();
         assert!(er.valid());
     
@@ -105,7 +107,7 @@ mod tests {
 
 
         let mut m = Manager::new();
-        let mut e = m.create_entity();
+        let mut e = m.create_entity("test entity".to_string());
         let ca = e.get_ref_mut().unwrap().add_element(DropTest { val: val.clone() }).expect("Expected to add element successfully");
 
         assert!((*val).get() == 0);
@@ -120,7 +122,7 @@ mod tests {
     #[test]
     fn test_manager_query() {
         let mut m = Manager::new();
-        let mut e = m.create_entity();
+        let mut e = m.create_entity("test entity".to_string());
         e.get_ref_mut().unwrap().add_element(A { val: 1 }).expect("Expected to add element successfully");
 
         assert!(m.of_type::<A>().len() == 1);
