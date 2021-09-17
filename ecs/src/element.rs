@@ -20,6 +20,9 @@ pub trait Element : 'static {
     fn fill_ui(&mut self, ui: &imgui::Ui) {
         ui.text(imgui::im_str!("Unimplemented ui"));
     }
+
+    fn serialize(&self) -> serde_json::Value { serde_json::Value::Null }
+    fn deserialize(&mut self, _data: serde_json::Value) { }
 }
 
 pub struct ElementHolder {

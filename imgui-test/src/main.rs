@@ -85,6 +85,71 @@ impl ManagerEditor {
             id: std::any::TypeId::of::<T>()
         });
     }
+
+    fn deserialize_element_into(&mut self, ent: EntAddr, val: &str) -> EleAddrErased {
+        #[derive(Deserialize)]
+        struct ElementObj {
+            name: String,
+            payload: serde_json::Value
+        }
+
+        let create_data = match serde_json::from_str::<ElementObj>(val) {
+            Ok(data) => data,
+            Err(_) => return EleAddrErased::new()
+        };
+
+        let entry = match self.find_exact_creator(create_data.name.as_str()) {
+            Some(entry) => entry,
+            None => return EleAddrErased::new()
+        };
+
+        let mut erased = (entry.creator)(ent);
+
+        assert!(erased.valid());
+
+        erased.get_ref_mut().expect("Should be valid").load(create_data.payload);
+
+        erased
+    }
+    fn serialize_element_into<T>(&mut self, ele: EleAddr<T>) -> String where
+    T: Element,
+    T: Clone,
+    T: Any,
+    T: Serialize,
+    T: Deserialize<'static> {
+        #[derive(Deserialize)]
+        struct ElementObj {
+            name: String,
+            payload: serde_json::Value
+        }
+
+        let name = (*ele.get_ref().unwrap()).type_id();
+
+        serde_json::to_string(ElementObj {
+            name: ele.get_ref.
+        })
+
+        let create_data = match serde_json::from_str::<ElementObj>(val) {
+            Ok(data) => data,
+            Err(_) => return EleAddrErased::new()
+        };
+
+        let entry = match self.find_exact_creator(create_data.name.as_str()) {
+            Some(entry) => entry,
+            None => return EleAddrErased::new()
+        };
+
+        let mut erased = (entry.creator)(ent);
+
+        assert!(erased.valid());
+
+        erased.get_ref_mut().expect("Should be valid").load(create_data.payload);
+
+        erased
+    }
+    fn deserialize_scene(&mut self, content: &str) {
+
+    }
     fn find_creators(&self, name: &str) -> Vec<CreatorEntry> {
         let mut res = Vec::<CreatorEntry>::new();
         for b in self.creator_map.iter() {
@@ -93,6 +158,15 @@ impl ManagerEditor {
             }
         }
         res
+    }
+    fn find_exact_creator(&self, name: &str) -> Option<CreatorEntry> {
+        let mut res = Vec::<CreatorEntry>::new();
+        for b in self.creator_map.iter() {
+            if b.1.name == name {
+                return Some(b.1.clone());
+            }
+        }
+        None
     }
     fn find_entities(&self, man: &mut Manager, name: &str) -> Vec<EntAddr> {
         let mut res = Vec::new();
@@ -120,6 +194,15 @@ impl ManagerEditor {
         .size([400.0, 400.0], Condition::FirstUseEver)
         .opened(&mut opened)
         .build(ui, move || {
+            if ui.button(im_str!("Load Scene"), [200_f32, 20_f32]) {
+                if let Ok(to_load) = nfd::open_file_dialog(Some(".json"), None) {
+                    match to_load {
+                        nfd::Response::Okay(file) => println!("{:?}", file),
+                        _ => println!("eh")
+                    };
+                }
+            }
+
             {
                 let mut ent_name_buf = ImString::new(ent_addr.get_ref().unwrap().name.as_str());
                 if ui.input_text(im_str!(":Name"), &mut ent_name_buf)
@@ -272,6 +355,11 @@ impl Element for B {
 }
 
 fn main() {
+    println!("{:?}", match nfd::open_file_dialog(None, None).unwrap() {
+        nfd::Response::Okay(val) => val,
+        _ => panic!()
+    });
+
     let mut manager = Manager::new();
 
     let ent = manager.create_entity("Baba booie".to_string());
