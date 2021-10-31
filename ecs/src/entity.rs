@@ -2,8 +2,10 @@ use std::{any::TypeId, cell::Cell, ops::{Deref, DerefMut}, rc::{Rc, Weak}};
 use std::hash::Hash;
 use std::{collections::HashSet};
 
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::deserialize_context::*;
 use crate::element::*;
 
 pub struct Entity {
@@ -30,7 +32,7 @@ impl Entity {
         Ok(self.query_element_addr::<T>())
     }
     pub fn remove_element<T: Element>(&mut self) -> Result<(), String> {
-        if let Some(index) = self.elements.iter_mut().position(|comp| comp.get_id() == std::any::TypeId::of::<T>()) {
+        if let Some(index) = self.elements.iter_mut().position(|comp| comp.get_element_type_id() == std::any::TypeId::of::<T>()) {
             self.elements.remove(index);
             Ok(())
         } else {
@@ -39,7 +41,7 @@ impl Entity {
     }
     pub fn query_element_addr_by_id(&mut self, id: TypeId) -> EleAddrErased {
         for comp in self.elements.iter_mut() {
-            if comp.get_id() == id {
+            if comp.get_element_type_id() == id {
                 return comp.make_addr_erased();
             }
         }
@@ -47,7 +49,7 @@ impl Entity {
     }
     
     pub fn remove_element_by_id(&mut self, id: TypeId) -> Result<(), String> {
-        if let Some(index) = self.elements.iter_mut().position(|comp| comp.get_id() == id) {
+        if let Some(index) = self.elements.iter_mut().position(|comp| comp.get_element_type_id() == id) {
             self.elements.remove(index);
             Ok(())
         } else {
@@ -59,7 +61,7 @@ impl Entity {
     T: serde::Serialize,
     T: serde::Deserialize<'static> {
         for comp in self.elements.iter_mut() {
-            if comp.get_id() == std::any::TypeId::of::<T>() {
+            if comp.get_element_type_id() == std::any::TypeId::of::<T>() {
                 return comp.make_addr::<T>();
             }
         }
@@ -116,7 +118,8 @@ impl EntityHolder {
 
         EntAddr {
             data: b,
-            internal: Rc::downgrade(&self.internal)
+            internal: Rc::downgrade(&self.internal),
+            init_state: None
         }
     }
 }
@@ -131,9 +134,15 @@ impl Drop for EntityHolder {
 }
 
 #[derive(Clone)]
+pub struct EntAddrInitState {
+    pub id: Uuid
+}
+
+#[derive(Clone)]
 pub struct EntAddr {
     data: *mut Entity,
-    internal: Weak<Cell<i64>>
+    internal: Weak<Cell<i64>>,
+    init_state: Option<EntAddrInitState>
 }
 
 impl PartialEq for EntAddr {
@@ -150,12 +159,49 @@ impl Hash for EntAddr {
     }
 }
 
+impl Serialize for EntAddr {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        match self.get_ref() {
+            Some(e) => serializer.serialize_i64(e.get_id().as_u128() as i64),
+            None => serializer.serialize_i64(0i64)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for EntAddr {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+    D: serde::Deserializer<'de> {
+        let v: i64 = Deserialize::deserialize(deserializer)?;
+
+        Ok(EntAddr::new_needs_mapping(map_id(Uuid::from_u128(v as u128))))
+    }
+}
+
 impl EntAddr {
     pub fn new() -> Self {
+        EntAddr::new_needs_mapping(Uuid::from_u128(0))
+    }
+    pub fn new_needs_mapping(id: Uuid) -> Self {
         Self {
             data: std::ptr::null_mut(),
-            internal: Weak::new()
+            internal: Weak::new(),
+            init_state: Some(EntAddrInitState { id })
         }
+    }
+    pub fn needs_mapping(&self) -> bool {
+        if !self.valid() {
+            assert!(matches!(self.init_state, None));
+        }
+        match self.init_state {
+            None => false,
+            Some(_) => true
+        }
+    }
+    pub fn get_init_state(&self) -> Option<EntAddrInitState> {
+        self.init_state.clone()
     }
     pub fn valid(&self) -> bool {
         self.internal.strong_count() > 0
@@ -304,7 +350,7 @@ impl Manager {
             self.element_destroy_queue.clear();
             for to_destroy in cloned_destroy_queue.iter() {
                 if let Some(destroy_index) = self.find_ent_index(&to_destroy.get_owner()) {
-                    let mut addr = self.entities[destroy_index].make_addr();
+                    let addr = self.entities[destroy_index].make_addr();
                     let mut r = addr.get_ref_mut().unwrap();
                     let ent_raw = r.deref_mut();
                     if let Some(element_index) = ent_raw.find_element_index(to_destroy) {
@@ -317,7 +363,7 @@ impl Manager {
     pub fn update(&mut self) {
         let mut index = 0 as usize;
         while index < self.entities.len() {
-            let mut ent_addr = self.entities[index].make_addr();
+            let ent_addr = self.entities[index].make_addr();
 
             {
                 let mut element_index = 0 as usize;
@@ -346,7 +392,7 @@ impl Manager {
     }
     pub fn create_entity(&mut self, name: String) -> EntAddr {
         self.entities.push(EntityHolder::new(name));
-        let mut res = self.entities.last_mut().unwrap().make_addr();
+        let res = self.entities.last_mut().unwrap().make_addr();
         res.get_ref_mut().expect("Entity that was just created should exist").self_addr = res.clone();
         res
     }

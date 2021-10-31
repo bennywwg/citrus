@@ -1,5 +1,9 @@
 pub mod element;
 pub mod entity;
+pub mod deserialize_context;
+
+#[macro_use]
+extern crate lazy_static;
 
 #[cfg(test)]
 mod tests {
@@ -11,14 +15,14 @@ mod tests {
     use crate::element::*;
     use crate::entity::*;
 
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     pub struct PosRot {
         pos: [f32; 3]
     }
 
     impl Element for PosRot { }
 
-    #[derive(Clone, Serialize, Deserialize)]
+    #[derive(Clone, Serialize)]
     pub struct Mesh {
         pub pos: EleAddr<PosRot>
     }
@@ -32,7 +36,7 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     struct A {
         val: i32
     }
@@ -44,7 +48,7 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     struct B {
         bal: i32
     }
@@ -90,35 +94,6 @@ mod tests {
         }
     }
     
-    #[test]
-    fn test_ecs_manager() {
-        struct DropTest {
-            val: Rc<Cell<i32>>
-        }
-
-        impl Element for DropTest { }
-        impl Drop for DropTest {
-            fn drop(&mut self) {
-                (*self.val).set(1);
-            }
-        }
-
-        let val = Rc::new(Cell::new(0));
-
-
-        let mut m = Manager::new();
-        let mut e = m.create_entity("test entity".to_string());
-        let ca = e.get_ref_mut().unwrap().add_element(DropTest { val: val.clone() }).expect("Expected to add element successfully");
-
-        assert!((*val).get() == 0);
-        m.destroy_element(ca.into());
-        m.update();
-        assert!((*val).get() == 1);
-        
-        m.destroy_entity(e);
-        m.update();
-    }
-
     #[test]
     fn test_manager_query() {
         let mut m = Manager::new();

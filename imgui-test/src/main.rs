@@ -4,9 +4,10 @@ mod support;
 use std::any::Any;
 use std::any::TypeId;
 use std::collections::HashMap;
+use std::fs;
 use std::rc::Rc;
-use __core::borrow::Borrow;
 use __core::cell::RefCell;
+use ecs::deserialize_context::*;
 use imgui::*;
 use ecs::{element::*, entity::*};
 use uuid::Uuid;
@@ -86,14 +87,14 @@ impl ManagerEditor {
         });
     }
 
-    fn deserialize_element_into(&mut self, ent: EntAddr, val: &str) -> EleAddrErased {
+    fn deserialize_element_into(&mut self, ent: EntAddr, val: serde_json::Value) -> EleAddrErased {
         #[derive(Deserialize)]
         struct ElementObj {
             name: String,
             payload: serde_json::Value
         }
 
-        let create_data = match serde_json::from_str::<ElementObj>(val) {
+        let create_data = match serde_json::from_value::<ElementObj>(val) {
             Ok(data) => data,
             Err(_) => return EleAddrErased::new()
         };
@@ -107,49 +108,115 @@ impl ManagerEditor {
 
         assert!(erased.valid());
 
-        erased.get_ref_mut().expect("Should be valid").load(create_data.payload);
+        erased.get_ref_mut().unwrap().ecs_deserialize(create_data.payload);
 
         erased
     }
-    fn serialize_element_into<T>(&mut self, ele: EleAddr<T>) -> String where
-    T: Element,
-    T: Clone,
-    T: Any,
-    T: Serialize,
-    T: Deserialize<'static> {
-        #[derive(Deserialize)]
+    fn serialize_element(&mut self, ele: EleAddrErased) -> Option<serde_json::Value> {
+        #[derive(Serialize)]
         struct ElementObj {
             name: String,
             payload: serde_json::Value
         }
 
-        let name = (*ele.get_ref().unwrap()).type_id();
+        if !ele.valid() {
+            return None;
+        }
 
-        serde_json::to_string(ElementObj {
-            name: ele.get_ref.
-        })
+        // TODO: Use this
+        //let tid = ele.get_element_type_id().unwrap();
 
-        let create_data = match serde_json::from_str::<ElementObj>(val) {
-            Ok(data) => data,
-            Err(_) => return EleAddrErased::new()
-        };
+        let creator = self.find_exact_creator_by_id(ele.get_element_type_id().unwrap()).unwrap();
 
-        let entry = match self.find_exact_creator(create_data.name.as_str()) {
-            Some(entry) => entry,
-            None => return EleAddrErased::new()
-        };
-
-        let mut erased = (entry.creator)(ent);
-
-        assert!(erased.valid());
-
-        erased.get_ref_mut().expect("Should be valid").load(create_data.payload);
-
-        erased
+        Some(serde_json::to_value(ElementObj {
+            name: creator.name,
+            payload: ele.get_ref().unwrap().ecs_serialize()
+        }).unwrap())
     }
-    fn deserialize_scene(&mut self, content: &str) {
+    fn deserialize_scene(&mut self, man: &mut Manager, content: serde_json::Value) -> Option<Vec<EntAddr>> {
+        #[derive(Deserialize, Clone)]
+        struct EntObj {
+            name: String,
+            id: i64,
+            eles: Vec<serde_json::Value>
+        }
 
+        let r = serde_json::from_value::<Vec<EntObj>>(content);
+        let ent_objs = match r {
+            Ok(v) => v,
+            Err(er) => {
+                println!("{:?}", er);
+                panic!();
+            }
+        };
+        
+        let mut res = Vec::new();
+
+        begin_deserialize();
+
+        let mut pairs = Vec::<(EntObj, EntAddr)>::new();
+
+        for ent in ent_objs.into_iter() {
+            let addr = man.create_entity(ent.name.clone());
+            
+            pairs.push((ent.clone(), addr.clone()));
+            
+            assert!(addr.valid());
+
+            set_mapping(Uuid::from_u128(ent.id as u128), addr.get_ref().unwrap().get_id());
+
+            res.push(addr);
+        }
+
+        for pair in pairs.into_iter() {
+            //let new_id = ent addr.get_ref().unwrap().get_id();
+
+            for ele in pair.0.eles.into_iter() {
+                if !self.deserialize_element_into(pair.1.clone(), ele).valid() {
+                    println!("Deserializing element failed");
+                }
+            }
+        }
+
+        end_deserialize();
+
+        Some(res)
     }
+    fn serialize_scene(&mut self, _man: &mut Manager, content: Vec<EntAddr>) -> serde_json::Value {
+        #[derive(Serialize)]
+        struct EntObj {
+            name: String,
+            id: i64,
+            eles: Vec<serde_json::Value>
+        }
+
+        let ent_objs: Vec<EntObj>
+            =content
+            .iter()
+            .map(|ea| {
+                let eles: Vec<serde_json::Value>
+                    =ea.get_ref_mut().unwrap()
+                    .erased_elements()
+                    .iter().filter_map(|ele| {
+                        self.serialize_element(ele.clone())
+                    })
+                    .collect();
+
+                EntObj {
+                    name: ea.get_ref().unwrap().name.clone(),
+                    id: match ea.get_ref() {
+                        None => 0i64,
+                        Some(e) => e.get_id().as_u128() as i64
+                    },
+                    eles
+                }
+            })
+            .collect();
+        
+        serde_json::to_value(ent_objs).unwrap()
+    }
+    
+    
     fn find_creators(&self, name: &str) -> Vec<CreatorEntry> {
         let mut res = Vec::<CreatorEntry>::new();
         for b in self.creator_map.iter() {
@@ -160,9 +227,16 @@ impl ManagerEditor {
         res
     }
     fn find_exact_creator(&self, name: &str) -> Option<CreatorEntry> {
-        let mut res = Vec::<CreatorEntry>::new();
         for b in self.creator_map.iter() {
             if b.1.name == name {
+                return Some(b.1.clone());
+            }
+        }
+        None
+    }
+    fn find_exact_creator_by_id(&self, id: TypeId) -> Option<CreatorEntry> {
+        for b in self.creator_map.iter() {
+            if b.1.id == id {
                 return Some(b.1.clone());
             }
         }
@@ -177,6 +251,16 @@ impl ManagerEditor {
             }
         }
         res
+    }
+    fn save_scene(&mut self, man: &mut Manager, name: &str) -> Result<(), std::io::Error> {
+        let all_ents = man.all_entities();
+        let val = self.serialize_scene(man, all_ents);
+        fs::write(name, serde_json::to_string(&val).unwrap())
+    }
+    fn load_scene(&mut self, man: &mut Manager, name: &str) {
+        let st = fs::read_to_string(name).unwrap();
+        let val = serde_json::from_str(&st).unwrap();
+        println!("{:?}", self.deserialize_scene(man, val).unwrap().len());
     }
     fn render_ui_for_ent(&mut self, ui: &Ui, selected: Rc<RefCell<SelectedEnt>>) -> bool {
         let ent_addr = (*selected).borrow().addr.clone();
@@ -194,15 +278,6 @@ impl ManagerEditor {
         .size([400.0, 400.0], Condition::FirstUseEver)
         .opened(&mut opened)
         .build(ui, move || {
-            if ui.button(im_str!("Load Scene"), [200_f32, 20_f32]) {
-                if let Ok(to_load) = nfd::open_file_dialog(Some(".json"), None) {
-                    match to_load {
-                        nfd::Response::Okay(file) => println!("{:?}", file),
-                        _ => println!("eh")
-                    };
-                }
-            }
-
             {
                 let mut ent_name_buf = ImString::new(ent_addr.get_ref().unwrap().name.as_str());
                 if ui.input_text(im_str!(":Name"), &mut ent_name_buf)
@@ -285,6 +360,27 @@ impl ManagerEditor {
         Window::new(im_str!("Manager"))
         .size([400.0, 400.0], Condition::FirstUseEver)
         .build(ui, || {
+            if ui.button(im_str!("Load Scene"), [200_f32, 20_f32]) {
+                if let Ok(to_load) = nfd::open_file_dialog(Some("json"), None) {
+                    match to_load {
+                        nfd::Response::Okay(file) => {
+                            self.load_scene(man, file.as_str())
+                        },
+                        _ => println!("eh")
+                    };
+                }
+            }
+
+            if ui.button(im_str!("Save Scene"), [200_f32, 20_f32]) {
+                if let Ok(to_load) = nfd::open_save_dialog(Some("json"), None) {
+                    match to_load {
+                        nfd::Response::Okay(file) => {
+                            self.save_scene(man, file.as_str()).unwrap()
+                        },
+                        _ => println!("eh")
+                    };
+                }
+            }
             if ui.button(im_str!("Create Entity"), [250_f32, 20_f32]) {
                 man.create_entity(String::new());
             }
@@ -344,7 +440,8 @@ impl Element for A {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct B {
-    val: i32
+    val: i32,
+    other: EleAddr<A>
 }
 
 impl Element for B {
@@ -352,24 +449,31 @@ impl Element for B {
         println!("B: val = {}", self.val);
         self.val += 10;
     }
+    fn ecs_serialize(&self) -> serde_json::Value {
+        serde_json::to_value(&self).unwrap()
+    }
 }
 
 fn main() {
+    /*
     println!("{:?}", match nfd::open_file_dialog(None, None).unwrap() {
         nfd::Response::Okay(val) => val,
         _ => panic!()
     });
+    */
+
+    //let a: EntAddr = serde_json::from_value(serde_json::Value::Null).unwrap();
 
     let mut manager = Manager::new();
 
-    let ent = manager.create_entity("Baba booie".to_string());
+    let _ent = manager.create_entity("Baba booie".to_string());
 
     //manager.update();
 
     let mut ed = ManagerEditor::new();
 
     ed.register_element_creator(A { val: 0 }, "PosRot");
-    ed.register_element_creator(B { val: 2 }, "Element B");
+    ed.register_element_creator(B { val: 2, other: EleAddr::<A>::new() }, "Element B");
 
     let system = support::init(file!());
     system.main_loop(move |_, ui| {

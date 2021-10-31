@@ -1,9 +1,12 @@
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 use std::cell::{Cell, RefCell};
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::hash::Hash;
 
+use uuid::Uuid;
+
+use crate::deserialize_context::*;
 use crate::entity::*;
 
 // Utility functions
@@ -21,8 +24,8 @@ pub trait Element : 'static {
         ui.text(imgui::im_str!("Unimplemented ui"));
     }
 
-    fn serialize(&self) -> serde_json::Value { serde_json::Value::Null }
-    fn deserialize(&mut self, _data: serde_json::Value) { }
+    fn ecs_serialize(&self) -> serde_json::Value { serde_json::Value::Null }
+    fn ecs_deserialize(&mut self, _data: serde_json::Value) { }
 }
 
 pub struct ElementHolder {
@@ -34,11 +37,7 @@ pub struct ElementHolder {
 }
 
 impl ElementHolder {
-    pub fn new<T>(val: T, owner: EntAddr) -> Self  where
-        T: Element,
-        T: serde::Serialize,
-        T: serde::Deserialize<'static>
-        {
+    pub fn new<T: Element>(val: T, owner: EntAddr) -> Self {
         let mut res = Self {
             data: Box::new(RefCell::new(val)),
             element_ptr: static_dyn_ref_null(), // value overwritten later, just ignore and don't use for now 
@@ -52,7 +51,7 @@ impl ElementHolder {
     pub fn get_ent(&self) -> EntAddr {
         self.owner.clone()
     }
-    pub fn get_id(&self) -> std::any::TypeId {
+    pub fn get_element_type_id(&self) -> std::any::TypeId {
         self.id
     }
     pub fn get_dyn_ref(&self) -> &dyn Element {
@@ -61,11 +60,7 @@ impl ElementHolder {
     pub fn get_dyn_ref_mut(&mut self) -> &mut dyn Element {
         self.element_ptr
     }
-    pub fn make_addr<T>(&mut self) -> EleAddr<T>  where
-        T: Element,
-        T: serde::Serialize,
-        T: serde::Deserialize<'static>
-    {
+    pub fn make_addr<T: Element>(&mut self) -> EleAddr<T> {
         let c = match (&mut *(self.data.get_mut())).downcast_mut::<T>() {
             Some(c) => c,
             None => return EleAddr::new()
@@ -74,13 +69,15 @@ impl ElementHolder {
         EleAddr::<T> {
             data: c,
             internal: Rc::downgrade(&self.internal),
-            owner: self.owner.clone()
+            owner: self.owner.clone(),
+            init_state: None
         }
     }
     pub fn make_addr_erased(&mut self) -> EleAddrErased {
         EleAddrErased {
             data: self.get_dyn_ref_mut(),
             internal: Rc::downgrade(&self.internal),
+            id: self.id,
             owner: self.owner.clone()
         }
     }
@@ -94,37 +91,83 @@ impl Drop for ElementHolder {
     }
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct EleAddrSerdeState {
+    ent_id: i64,
+    ele_id: String
+}
+
 // Element Ref
-pub struct EleAddr<T>  where
-    T: Element,
-    T: serde::Serialize,
-    T: serde::Deserialize<'static>
-{
+pub struct EleAddr<T: Element> {
     data: *mut T,
     internal: Weak<Cell<i64>>,
-    owner: EntAddr
+    owner: EntAddr,
+    init_state: Option<EleAddrSerdeState>
 }
-impl<T> Clone for EleAddr<T>  where
-    T: Element,
-    T: serde::Serialize,
-    T: serde::Deserialize<'static> {
+
+impl<T: Element> Clone for EleAddr<T> {
     fn clone(&self) -> Self {
-        Self { data: self.data.clone(), internal: self.internal.clone(), owner: self.owner.clone() }
+        Self {
+            data: self.data.clone(),
+            internal: self.internal.clone(),
+            owner: self.owner.clone(),
+            init_state: self.init_state.clone()
+        }
     }
 }
-impl<T> EleAddr<T>  where
-T: Element,
-T: serde::Serialize,
-T: serde::Deserialize<'static> {
+
+impl<T: Element> serde::Serialize for EleAddr<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let owner = self.get_owner();
+        let id = match owner.get_ref() {
+            None => 0i64,
+            Some(e) => e.get_id().as_u128() as i64
+        };
+
+        (EleAddrSerdeState {
+            ent_id: id,
+            ele_id: std::any::type_name::<T>().to_string() 
+        }).serialize(serializer)
+    }
+}
+
+impl<'de, T: Element> serde::Deserialize<'de> for EleAddr<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+    D: serde::Deserializer<'de> {
+        let mut v: EleAddrSerdeState = serde::Deserialize::deserialize(deserializer)?;
+
+        v.ent_id = map_id(Uuid::from_u128(v.ent_id as u128)).as_u128() as i64;
+
+        Ok(EleAddr::<T>::new_needs_mapping(v))
+    }
+}
+
+impl<T: Element> EleAddr<T> {
     pub fn new() -> Self {
         Self {
             data: std::ptr::null_mut(),
             internal: Weak::new(),
-            owner: EntAddr::new()
+            owner: EntAddr::new(),
+            init_state: None
+        }
+    }
+    pub fn new_needs_mapping(state: EleAddrSerdeState) -> Self {
+        Self {
+            data: std::ptr::null_mut(),
+            internal: Weak::new(),
+            owner: EntAddr::new(),
+            init_state: Some(state)
         }
     }
     pub fn valid(&self) -> bool {
         self.internal.strong_count() > 0
+    }
+    pub fn get_owner(&self) -> EntAddr {
+        match self.valid() {
+            true => self.owner.clone(),
+            false => EntAddr::new()
+        }
     }
     pub fn get_ref<'a>(&self) -> Option<EleRef<'a, T>> {
         match self.internal.upgrade() {
@@ -231,11 +274,12 @@ impl<'a, T: Element> EleRefMut<'a, T> {
     }
 }
 
-// Element Ref Erased
+/// EleAddrErased section
 #[derive(Clone)]
 pub struct EleAddrErased {
     data: *mut dyn Element,
     internal: Weak<Cell<i64>>,
+    id: std::any::TypeId,
     owner: EntAddr
 }
 
@@ -244,6 +288,7 @@ impl EleAddrErased {
         Self {
             data: unsafe { std::mem::transmute([0, 0, 0, 0]) },
             internal: Weak::new(),
+            id: std::any::TypeId::of::<()>(),
             owner: EntAddr::new()
         }
     }
@@ -279,8 +324,15 @@ impl EleAddrErased {
     pub fn get_owner(&self) -> EntAddr {
         self.owner.clone()
     }
+    pub fn get_element_type_id(&self) -> Option<TypeId> {
+        match self.valid() {
+            false => None,
+            true => Some(self.id)
+        }
+    }
 }
 
+/// EleRefErased
 pub struct EleRefErased<'a> {
     data: &'a dyn Element,
     internal: Weak<Cell<i64>>
@@ -359,10 +411,7 @@ impl<'a> EleRefErasedMut<'a> {
     }
 }
 
-impl<T> From<EleAddr<T>> for EleAddrErased  where
-T: Element,
-T: serde::Serialize,
-T: serde::Deserialize<'static> {
+impl<T: Element> From<EleAddr<T>> for EleAddrErased {
     fn from(other: EleAddr<T>) -> Self {
         match other.valid() {
             true => {
@@ -370,6 +419,7 @@ T: serde::Deserialize<'static> {
                 EleAddrErased {
                     data: static_dyn_ref_from_concrete(other_mut.get_ref_mut().unwrap().deref_mut()),
                     internal: other.internal.clone(),
+                    id: std::any::TypeId::of::<T>(),
                     owner: other.owner.clone()
                 }
             },
