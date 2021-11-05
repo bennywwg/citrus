@@ -1,12 +1,14 @@
-use glium::glutin;
+use glium::{Display, glutin};
 use glium::glutin::event::{Event, WindowEvent};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::WindowBuilder;
-use glium::{Display, Surface};
-use imgui::{Context, FontConfig, FontGlyphRanges, FontSource, Ui};
+use imgui_glium_renderer::glium::Surface;
+use imgui::{FontConfig, FontGlyphRanges, FontSource, Ui};
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
+use glium::backend::{Context, Facade};
 use std::path::Path;
+use std::rc::Rc;
 use std::time::Instant;
 
 mod clipboard;
@@ -14,7 +16,7 @@ mod clipboard;
 pub struct System {
     pub event_loop: EventLoop<()>,
     pub display: glium::Display,
-    pub imgui: Context,
+    pub imgui: imgui::Context,
     pub platform: WinitPlatform,
     pub renderer: Renderer,
     pub font_size: f32,
@@ -29,15 +31,15 @@ pub fn init(title: &str) -> System {
     let context = glutin::ContextBuilder::new().with_vsync(true);
     let builder = WindowBuilder::new()
         .with_title(title.to_owned())
-        .with_inner_size(glutin::dpi::LogicalSize::new(1280f64, 720f64));
+        .with_inner_size(glutin::dpi::LogicalSize::new(1024f64, 768f64));
     let display =
         Display::new(builder, context, &event_loop).expect("Failed to initialize display");
 
-    let mut imgui = Context::create();
+    let mut imgui = imgui::Context::create();
     imgui.set_ini_filename(None);
 
     if let Some(backend) = clipboard::init() {
-        imgui.set_clipboard_backend(Box::new(backend));
+        imgui.set_clipboard_backend(backend);
     } else {
         eprintln!("Failed to initialize clipboard");
     }
@@ -71,7 +73,7 @@ pub fn init(title: &str) -> System {
 
     imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
 
-    let renderer = Renderer::init(&mut imgui, &display).expect("Failed to initialize renderer");
+    let renderer = Renderer::init::<Rc<Context>>(&mut imgui, display.get_context()).expect("Failed to initialize renderer");
 
     System {
         event_loop,
@@ -121,7 +123,7 @@ impl System {
                 let mut target = display.draw();
                 target.clear_color_srgb(1.0, 1.0, 1.0, 1.0);
                 platform.prepare_render(&ui, gl_window.window());
-                let draw_data = ui.render();
+                let draw_data = imgui.render();
                 renderer
                     .render(&mut target, draw_data)
                     .expect("Rendering failed");

@@ -91,7 +91,7 @@ impl Entity {
 
     #[cfg(feature = "gen-imgui")]
     pub fn fill_ui(&mut self, ui: &mut imgui::Ui) {
-        ui.text(imgui::im_str!("Entity ui"));
+        ui.text("Entity ui");
     }
 }
 
@@ -118,8 +118,7 @@ impl EntityHolder {
 
         EntAddr {
             data: b,
-            internal: Rc::downgrade(&self.internal),
-            init_state: None
+            internal: Rc::downgrade(&self.internal)
         }
     }
 }
@@ -141,8 +140,7 @@ pub struct EntAddrInitState {
 #[derive(Clone)]
 pub struct EntAddr {
     data: *mut Entity,
-    internal: Weak<Cell<i64>>,
-    init_state: Option<EntAddrInitState>
+    internal: Weak<Cell<i64>>
 }
 
 impl PartialEq for EntAddr {
@@ -176,32 +174,19 @@ impl<'de> Deserialize<'de> for EntAddr {
     D: serde::Deserializer<'de> {
         let v: i64 = Deserialize::deserialize(deserializer)?;
 
-        Ok(EntAddr::new_needs_mapping(map_id(Uuid::from_u128(v as u128))))
+        Ok(map_id(Uuid::from_u128(v as u128)))
     }
 }
 
+unsafe impl Send for EntAddr {}
+unsafe impl Sync for EntAddr {}
+
 impl EntAddr {
     pub fn new() -> Self {
-        EntAddr::new_needs_mapping(Uuid::from_u128(0))
-    }
-    pub fn new_needs_mapping(id: Uuid) -> Self {
         Self {
             data: std::ptr::null_mut(),
-            internal: Weak::new(),
-            init_state: Some(EntAddrInitState { id })
+            internal: Weak::new()
         }
-    }
-    pub fn needs_mapping(&self) -> bool {
-        if !self.valid() {
-            assert!(matches!(self.init_state, None));
-        }
-        match self.init_state {
-            None => false,
-            Some(_) => true
-        }
-    }
-    pub fn get_init_state(&self) -> Option<EntAddrInitState> {
-        self.init_state.clone()
     }
     pub fn valid(&self) -> bool {
         self.internal.strong_count() > 0

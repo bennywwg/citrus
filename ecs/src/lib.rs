@@ -1,6 +1,7 @@
 pub mod element;
 pub mod entity;
 pub mod deserialize_context;
+pub mod reflection;
 
 #[macro_use]
 extern crate lazy_static;

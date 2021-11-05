@@ -17,8 +17,8 @@ fn uuid_truncated(id: Uuid) -> String {
     id.to_string().chars().take(8).collect::<String>()
 }
 
-fn im_id<'a>(uuid: Uuid) -> imgui::Id<'a> {
-    Id::Int(uuid.as_u128() as i32)
+fn im_id<'a>(uuid: Uuid, ui: &Ui) -> imgui::Id {
+    Id::Int(uuid.as_u128() as i32, ui)
 }
 
 #[derive(Clone)]
@@ -150,29 +150,17 @@ impl ManagerEditor {
             }
         };
         
-        let mut res = Vec::new();
-
         begin_deserialize();
 
         let mut pairs = Vec::<(EntObj, EntAddr)>::new();
 
-        for ent in ent_objs.into_iter() {
-            let addr = man.create_entity(ent.name.clone());
-            
-            pairs.push((ent.clone(), addr.clone()));
-            
-            assert!(addr.valid());
+        ent_objs
+        .iter()
+        .for_each(|ent| pairs.push((ent.clone(), set_mapping(Uuid::from_u128(ent.id as u128), ent.name.clone(), man))));
 
-            set_mapping(Uuid::from_u128(ent.id as u128), addr.get_ref().unwrap().get_id());
-
-            res.push(addr);
-        }
-
-        for pair in pairs.into_iter() {
-            //let new_id = ent addr.get_ref().unwrap().get_id();
-
-            for ele in pair.0.eles.into_iter() {
-                if !self.deserialize_element_into(pair.1.clone(), ele).valid() {
+        for pair in pairs.iter() {
+            for ele_payload in pair.0.eles.iter() {
+                if !self.deserialize_element_into(pair.1.clone(), ele_payload.clone()).valid() {
                     println!("Deserializing element failed");
                 }
             }
@@ -180,7 +168,7 @@ impl ManagerEditor {
 
         end_deserialize();
 
-        Some(res)
+        Some(pairs.iter().map(|pair| pair.1.clone()).collect())
     }
     fn serialize_scene(&mut self, _man: &mut Manager, content: Vec<EntAddr>) -> serde_json::Value {
         #[derive(Serialize)]
@@ -262,7 +250,7 @@ impl ManagerEditor {
         let val = serde_json::from_str(&st).unwrap();
         println!("{:?}", self.deserialize_scene(man, val).unwrap().len());
     }
-    fn render_ui_for_ent(&mut self, ui: &Ui, selected: Rc<RefCell<SelectedEnt>>) -> bool {
+    fn render_ui_for_ent(&mut self, ui: &Ui, man: &mut Manager, selected: Rc<RefCell<SelectedEnt>>) -> bool {
         let ent_addr = (*selected).borrow().addr.clone();
         
         if !ent_addr.valid() {
@@ -272,28 +260,18 @@ impl ManagerEditor {
         let truncated_id = format!("{}", ent_addr.get_ref_mut().unwrap().get_id().to_string());
 
         let mut opened: bool = true;
-        Window::new(&*ImString::new(truncated_id.as_str()))
+        Window::new(ui, &*ImString::new(truncated_id.as_str()))
         .collapsible(true)
         .resizable(true)
         .size([400.0, 400.0], Condition::FirstUseEver)
         .opened(&mut opened)
-        .build(ui, move || {
+        .build(move || {
             {
-                let mut ent_name_buf = ImString::new(ent_addr.get_ref().unwrap().name.as_str());
-                if ui.input_text(im_str!(":Name"), &mut ent_name_buf)
-                .resize_buffer(true)
-                .build() {
-                    ent_addr.get_ref_mut().unwrap().name = ent_name_buf.to_string();
-                }
+                ui.input_text(":Name", &mut ent_addr.get_ref_mut().unwrap().name).build();
             }
 
             ui.separator();
-            let mut buf = ImString::new(self.creator_search.as_str());
-            if ui.input_text(im_str!(":Search Elements"), &mut buf)
-            .resize_buffer(true)
-            .build() {
-                self.creator_search = buf.to_string();
-            }
+            ui.input_text(":Search Elements", &mut self.creator_search).build();
             let list = self.find_creators(self.creator_search.as_str());
             for entry in list.iter() {
                 let mut select_pos: Option<[f32; 2]> = None;
@@ -304,7 +282,7 @@ impl ManagerEditor {
                         ui.push_style_color(StyleColor::ButtonHovered, [1_f32, 0.5_f32, 0.5_f32, 1_f32])
                     );
                     select_pos = Some(ui.cursor_pos());
-                    if ui.button(&*ImString::new(("Destroy ".to_owned() + entry.name.as_str()).as_str()), [200_f32, 20_f32]) {
+                    if ui.button_with_size(&*ImString::new(("Destroy ".to_owned() + entry.name.as_str()).as_str()), [200_f32, 20_f32]) {
                         ent_addr.get_ref_mut().unwrap().remove_element_by_id(entry.id).expect("Should have removed element");
 
                         if  (*selected).borrow().selected_element == Some(entry.id) {
@@ -312,14 +290,14 @@ impl ManagerEditor {
                             (*selected).borrow_mut().selected_element_label = "(None)".to_string();
                         }
                     }
-                    style1.pop(ui);
-                    style0.pop(ui);
+                    style1.pop();
+                    style0.pop();
                 } else {
-                    if ui.button(&*ImString::new(("Create  ".to_owned() + entry.name.as_str()).as_str()), [200_f32, 20_f32]) {
+                    if ui.button_with_size(&*ImString::new(("Create  ".to_owned() + entry.name.as_str()).as_str()), [200_f32, 20_f32]) {
                         assert!((*entry.creator)(ent_addr.clone()).valid());
                     }
                 }
-                style.pop(ui);
+                style.pop();
                 
                 if let Some(cursor) = select_pos {
                     ui.set_cursor_pos([cursor[0] + 220_f32, cursor[1]]);
@@ -327,21 +305,23 @@ impl ManagerEditor {
                         true => Some(ui.push_style_color(StyleColor::Button, [0_f32, 0.5_f32, 0_f32, 1_f32])),
                         false => None
                     };
-                    if ui.button(&*im_str!("Select {}", entry.name), [150_f32, 20_f32]) {
+                    if ui.button_with_size(format!("Select {}", entry.name), [150_f32, 20_f32]) {
                         (*selected).borrow_mut().selected_element = Some(entry.id);
                         (*selected).borrow_mut().selected_element_label = entry.name.clone();
                     }
                     if let Some(st) = style {
-                        st.pop(ui);
+                        st.pop();
                     }
                 }
             }
 
             if let Some(selected_id) = (*selected).borrow().selected_element {
-                ui.text(im_str!("Selected {}", (*selected).borrow().selected_element_label));
+                ui.text(format!("Selected {}", (*selected).borrow().selected_element_label));
                 ui.separator();
-                if let Some(mut ele) = ent_addr.clone().get_ref_mut().unwrap().query_element_addr_by_id(selected_id).get_ref_mut() {
-                    ele.fill_ui(ui);
+
+                let mut ele_addr = ent_addr.clone().get_ref_mut().unwrap().query_element_addr_by_id(selected_id);
+                if let Some(mut ele) = ele_addr.get_ref_mut() {
+                    ele.fill_ui(ui, man);
                 }
             }
         });
@@ -357,10 +337,10 @@ impl ManagerEditor {
         }
         self.selected_list = new_selected;
 
-        Window::new(im_str!("Manager"))
+        Window::new(ui,"Manager")
         .size([400.0, 400.0], Condition::FirstUseEver)
-        .build(ui, || {
-            if ui.button(im_str!("Load Scene"), [200_f32, 20_f32]) {
+        .build(|| {
+            if ui.button_with_size("Load Scene", [200_f32, 20_f32]) {
                 if let Ok(to_load) = nfd::open_file_dialog(Some("json"), None) {
                     match to_load {
                         nfd::Response::Okay(file) => {
@@ -371,7 +351,7 @@ impl ManagerEditor {
                 }
             }
 
-            if ui.button(im_str!("Save Scene"), [200_f32, 20_f32]) {
+            if ui.button_with_size("Save Scene", [200_f32, 20_f32]) {
                 if let Ok(to_load) = nfd::open_save_dialog(Some("json"), None) {
                     match to_load {
                         nfd::Response::Okay(file) => {
@@ -381,30 +361,25 @@ impl ManagerEditor {
                     };
                 }
             }
-            if ui.button(im_str!("Create Entity"), [250_f32, 20_f32]) {
+            if ui.button_with_size("Create Entity", [250_f32, 20_f32]) {
                 man.create_entity(String::new());
             }
             ui.separator();
-            let mut buf = ImString::new(self.entity_search.as_str());
-            if ui.input_text(im_str!(":Search Entities"), &mut buf)
-            .resize_buffer(true)
-            .build() {
-                self.entity_search = buf.to_string();
-            }
+            ui.input_text(":Search Entities", &mut self.entity_search).build();
             ui.separator();
 
             for ent in self.find_entities(man, self.entity_search.as_str()).iter() {
                 let cursor = ui.cursor_pos();
-                let id_token = ui.push_id(im_id(ent.get_ref().unwrap().get_id()));
-                if ui.button(&*im_str!("Select \"{}\"", ent.get_ref().unwrap().name), [250_f32, 20_f32]) {
+                let id_token = ui.push_id(ent.get_ref().unwrap().get_id().to_string());
+                if ui.button_with_size(format!("Select \"{}\"", ent.get_ref().unwrap().name), [250_f32, 20_f32]) {
                     if !self.selected_list.iter().any(|e| (**e).borrow().addr == *ent) {
                         self.selected_list.push(Rc::new(RefCell::new(SelectedEnt::new(ent.clone()))));
                     }
                 }
-                id_token.pop(ui);
+                id_token.pop();
 
                 ui.set_cursor_pos([cursor[0] + 270_f32, cursor[1]]);                
-                if ui.button(&*im_str!("Destroy {}", uuid_truncated(ent.get_ref().unwrap().get_id())), [130_f32, 20_f32]) {
+                if ui.button_with_size(format!("Destroy {}", uuid_truncated(ent.get_ref().unwrap().get_id())), [130_f32, 20_f32]) {
                     man.destroy_entity(ent.clone());
                 }
             }
@@ -412,7 +387,7 @@ impl ManagerEditor {
         
         let mut removed = Vec::new();
         for i in 0..self.selected_list.len() {
-            if !self.render_ui_for_ent(ui, self.selected_list[i].clone()) {
+            if !self.render_ui_for_ent(ui, man, self.selected_list[i].clone()) {
                 removed.push(self.selected_list[i].clone());
             }
         }
@@ -433,15 +408,15 @@ impl Element for A {
         println!("A: val = {}", self.val);
         self.val += 10;
     }
-    fn fill_ui(&mut self, ui: &imgui::Ui) {
-        ui.text(im_str!("Ayyyy!"));
+    fn fill_ui(&mut self, ui: &imgui::Ui, _man: &mut Manager) {
+        ui.text("Ayyyy!");
     }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 struct B {
     val: i32,
-    other: EleAddr<A>
+    other: EntAddr
 }
 
 impl Element for B {
@@ -451,6 +426,16 @@ impl Element for B {
     }
     fn ecs_serialize(&self) -> serde_json::Value {
         serde_json::to_value(&self).unwrap()
+    }
+    fn ecs_deserialize(&mut self, data: serde_json::Value) {
+        match serde_json::from_value::<Self>(data) {
+            Ok(parsed) => *self = parsed,
+            Err(er) => println!("{:?}", er)
+        };
+    }
+    
+    fn fill_ui(&mut self, ui: &imgui::Ui, man: &mut Manager) {
+        ecs::reflection::select_entity(&mut self.other, ui, man);
     }
 }
 
@@ -473,7 +458,7 @@ fn main() {
     let mut ed = ManagerEditor::new();
 
     ed.register_element_creator(A { val: 0 }, "PosRot");
-    ed.register_element_creator(B { val: 2, other: EleAddr::<A>::new() }, "Element B");
+    ed.register_element_creator(B { val: 2, other: EntAddr::new() }, "Element B");
 
     let system = support::init(file!());
     system.main_loop(move |_, ui| {

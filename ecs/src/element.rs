@@ -20,8 +20,8 @@ fn static_dyn_ref_from_concrete<T: Element>(concrete: &mut T) -> &'static mut dy
 pub trait Element : 'static {
     fn update(&mut self, _man: &mut Manager, _owner: EntAddr) { }
     #[cfg(feature = "gen-imgui")]
-    fn fill_ui(&mut self, ui: &imgui::Ui) {
-        ui.text(imgui::im_str!("Unimplemented ui"));
+    fn fill_ui(&mut self, ui: &imgui::Ui, _man: &mut Manager) {
+        ui.text("Unimplemented ui");
     }
 
     fn ecs_serialize(&self) -> serde_json::Value { serde_json::Value::Null }
@@ -137,7 +137,11 @@ impl<'de, T: Element> serde::Deserialize<'de> for EleAddr<T> {
     D: serde::Deserializer<'de> {
         let mut v: EleAddrSerdeState = serde::Deserialize::deserialize(deserializer)?;
 
-        v.ent_id = map_id(Uuid::from_u128(v.ent_id as u128)).as_u128() as i64;
+        let ent = map_id(Uuid::from_u128(v.ent_id as u128));
+        v.ent_id = match ent.valid() {
+            true => ent.get_ref().unwrap().get_id().as_u128() as i64,
+            false => 0i64
+        };
 
         Ok(EleAddr::<T>::new_needs_mapping(v))
     }
