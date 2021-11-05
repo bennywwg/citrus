@@ -57,9 +57,7 @@ impl Entity {
         }
     }
     pub fn query_element_addr<T>(&mut self) -> EleAddr<T>  where
-    T: Element,
-    T: serde::Serialize,
-    T: serde::Deserialize<'static> {
+    T: Element {
         for comp in self.elements.iter_mut() {
             if comp.get_element_type_id() == std::any::TypeId::of::<T>() {
                 return comp.make_addr::<T>();
@@ -68,15 +66,11 @@ impl Entity {
         EleAddr::new()
     }
     pub fn query_element<T>(&mut self) -> Option<EleRef<T>>  where
-    T: Element,
-    T: serde::Serialize,
-    T: serde::Deserialize<'static> {
+    T: Element {
         self.query_element_addr().get_ref()
     }
     pub fn query_element_mut<T>(&mut self) -> Option<EleRefMut<T>>  where
-    T: Element,
-    T: serde::Serialize,
-    T: serde::Deserialize<'static> {
+    T: Element {
         self.query_element_addr().get_ref_mut()
     }
     

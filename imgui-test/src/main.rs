@@ -412,7 +412,8 @@ impl Element for A {
 #[derive(Clone, Serialize, Deserialize)]
 struct B {
     val: i32,
-    other: EntAddr
+    other: EntAddr,
+    ele: EleAddr<A>
 }
 
 impl Element for B {
@@ -431,7 +432,8 @@ impl Element for B {
     }
     
     fn fill_ui(&mut self, ui: &imgui::Ui, man: &mut Manager) {
-        ecs::reflection::select_entity(&mut self.other, ui, man);
+        ecs::reflection::select_entity(&mut self.other, "other", ui, man);
+        ecs::reflection::select_element(&mut self.ele, "ele", ui, man);
     }
 }
 
@@ -454,7 +456,7 @@ fn main() {
     let mut ed = ManagerEditor::new();
 
     ed.register_element_creator(A { val: 0 }, "PosRot");
-    ed.register_element_creator(B { val: 2, other: EntAddr::new() }, "Element B");
+    ed.register_element_creator(B { val: 2, other: EntAddr::new(), ele: EleAddr::new() }, "Element B");
 
     let system = support::init(file!());
     system.main_loop(move |_, ui| {
