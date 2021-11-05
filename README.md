@@ -1,5 +1,7 @@
 A simple and safe Entity Component (aka Element) System framework for rust.
 
+![example workflow](https://teamcity.spkit.org/app/rest/builds/affectedProject:name:Test/statusIcon)
+
 # Structure
 
 #### `trait Element`, `Entity`
