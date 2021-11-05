@@ -17,10 +17,6 @@ fn uuid_truncated(id: Uuid) -> String {
     id.to_string().chars().take(8).collect::<String>()
 }
 
-fn im_id<'a>(uuid: Uuid, ui: &Ui) -> imgui::Id {
-    Id::Int(uuid.as_u128() as i32, ui)
-}
-
 #[derive(Clone)]
 struct CreatorEntry {
     creator: Rc<Box<dyn Fn(EntAddr) -> EleAddrErased>>,
