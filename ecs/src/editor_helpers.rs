@@ -53,6 +53,7 @@ pub fn select_entity(res: &mut EntAddr, label: &str, ui: &Ui, man: &mut Manager)
     selected
 }
 
+
 pub fn select_element<T: Element>(res: &mut EleAddr<T>, label: &str, ui: &Ui, man: &mut Manager) -> bool {
     //let mut search_str = String::new();
     //ui.input_text("Search Entities", &mut search_str).build();

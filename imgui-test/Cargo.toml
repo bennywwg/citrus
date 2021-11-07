@@ -12,5 +12,4 @@ glium = { version = "0.30" }
 imgui = { path = "../imgui-rs/imgui" } # { version = "0.8.0" }
 imgui-glium-renderer = { path = "../imgui-rs/imgui-glium-renderer" } # { version = "0.8.0" }
 imgui-winit-support = { path = "../imgui-rs/imgui-winit-support" } # { version = "0.8.0" }
-nfd = { version = "0.0.4" }
 ecs = { path = "../ecs" }

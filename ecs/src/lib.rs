@@ -1,17 +1,17 @@
 pub mod element;
 pub mod entity;
+pub mod scene_serde;
+#[cfg(feature = "gen-imgui")]
+pub mod editor_helpers;
+#[cfg(feature = "gen-imgui")]
+pub mod scene_editor;
 pub mod deserialize_context;
-pub mod reflection;
 
 #[macro_use]
 extern crate lazy_static;
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-    use std::rc::Rc;
-
-
     use serde::*;
     use crate::element::*;
     use crate::entity::*;
@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn test_ecs() {
         let eh = EntityHolder::new("test entity".to_string());
-        let mut er = eh.make_addr();
+        let er = eh.make_addr();
         assert!(er.valid());
     
         {
@@ -84,9 +84,6 @@ mod tests {
             assert!(c.valid());
         }
     
-        e.remove_element::<A>().expect("Expected to remvoe element normally");
-        assert!(!e.query_element_addr::<A>().valid());
-    
         // address
         {
             assert!(if let None = c.get_ref() { true } else { false });
@@ -98,7 +95,7 @@ mod tests {
     #[test]
     fn test_manager_query() {
         let mut m = Manager::new();
-        let mut e = m.create_entity("test entity".to_string());
+        let e = m.create_entity("test entity".to_string());
         e.get_ref_mut().unwrap().add_element(A { val: 1 }).expect("Expected to add element successfully");
 
         assert!(m.of_type::<A>().len() == 1);

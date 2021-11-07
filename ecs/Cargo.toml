@@ -7,9 +7,10 @@ edition = "2018"
 serde = { version = "1.0.130", features = ["derive"] }
 serde_json = { version = "1.0.59" }
 uuid = { version = "0.8", features = ["v4"] }
-imgui = { path = "../imgui-rs/imgui", optional = true } # { version = "0.8.0" }
 lazy_static = {version =  "1.4.0" }
+nfd = { version = "0.0.4", optional = true }
+imgui = { path = "../imgui-rs/imgui", optional = true } # { version = "0.8.0" }
 
 [features]
 default = ["gen-imgui"]
-gen-imgui = ["imgui"]
+gen-imgui = ["imgui", "nfd"]

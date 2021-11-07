@@ -16,48 +16,28 @@ pub struct Entity {
 }
 
 impl Entity {
-    pub fn erased_elements(&mut self) -> Vec<EleAddrErased> {
+    pub fn get_id(&self) -> Uuid {
+        self.id
+    }
+
+    // A list of all elements with the type information erased
+    pub fn erased_elements(&mut self) ->                        Vec<EleAddrErased> {
         self.elements.iter_mut()
         .map(|holder| holder.make_addr_erased())
         .collect::<Vec<EleAddrErased>>()
     }
-    pub fn add_element<T>(&mut self, val: T) -> Result<EleAddr<T>, String>  where
-    T: Element,
-    T: serde::Serialize,
-    T: serde::Deserialize<'static> {
+
+    // Create element, can occur at any time
+    pub fn add_element<T: Element>(&mut self, val: T) ->        Result<EleAddr<T>, String> {
         if self.query_element_addr::<T>().valid() {
             return Err(format!("Element of type \"{}\" is already present", std::any::type_name::<T>()));
         }
         self.elements.push(ElementHolder::new(val, self.self_addr.clone()));
         Ok(self.query_element_addr::<T>())
     }
-    pub fn remove_element<T: Element>(&mut self) -> Result<(), String> {
-        if let Some(index) = self.elements.iter_mut().position(|comp| comp.get_element_type_id() == std::any::TypeId::of::<T>()) {
-            self.elements.remove(index);
-            Ok(())
-        } else {
-            Err(format!("Element \"{}\" did not exist", std::any::type_name::<T>()) as String)
-        }
-    }
-    pub fn query_element_addr_by_id(&mut self, id: TypeId) -> EleAddrErased {
-        for comp in self.elements.iter_mut() {
-            if comp.get_element_type_id() == id {
-                return comp.make_addr_erased();
-            }
-        }
-        EleAddrErased::new()
-    }
     
-    pub fn remove_element_by_id(&mut self, id: TypeId) -> Result<(), String> {
-        if let Some(index) = self.elements.iter_mut().position(|comp| comp.get_element_type_id() == id) {
-            self.elements.remove(index);
-            Ok(())
-        } else {
-            Err("Element did not exist".to_string())
-        }
-    }
-    pub fn query_element_addr<T>(&mut self) -> EleAddr<T>  where
-    T: Element {
+    // Querying addresses
+    pub fn query_element_addr<T: Element>(&mut self) ->         EleAddr<T> {
         for comp in self.elements.iter_mut() {
             if comp.get_element_type_id() == std::any::TypeId::of::<T>() {
                 return comp.make_addr::<T>();
@@ -65,27 +45,34 @@ impl Entity {
         }
         EleAddr::new()
     }
-    pub fn query_element<T>(&mut self) -> Option<EleRef<T>>  where
-    T: Element {
+    pub fn query_element_addr_by_id(&mut self, id: &TypeId) ->  EleAddrErased {
+        self.elements.iter_mut()
+        .find(|ele| ele.get_element_type_id() == *id)
+        .map_or(EleAddrErased::new(), |ele| ele.make_addr_erased())
+    }  
+    
+    // Querying conveniance functions (just call get_ref/_mut on the address)
+    pub fn query_element<T: Element>(&mut self) ->              Option<EleRef<T>> {
         self.query_element_addr().get_ref()
     }
-    pub fn query_element_mut<T>(&mut self) -> Option<EleRefMut<T>>  where
-    T: Element {
+    pub fn query_element_mut<T: Element>(&mut self) ->          Option<EleRefMut<T>> {
         self.query_element_addr().get_ref_mut()
     }
+    pub fn query_element_by_id(&mut self, id: &TypeId) ->       Option<EleRefErased> {
+        self.query_element_addr_by_id(id).get_ref()
+    }
+    pub fn query_element_mut_by_id(&mut self, id: &TypeId) ->   Option<EleRefErasedMut> {
+        self.query_element_addr_by_id(id).get_ref_mut()
+    }
     
-    // TODO: Make this a non-mut function
-    fn find_element_index(&mut self, addr: &EleAddrErased) -> Option<usize> {
-        self.elements.iter_mut().position(|element| element.make_addr_erased().eq(addr))
-    }
-
-    pub fn get_id(&self) -> Uuid {
-        self.id
-    }
-
-    #[cfg(feature = "gen-imgui")]
-    pub fn fill_ui(&mut self, ui: &mut imgui::Ui) {
-        ui.text("Entity ui");
+    // Private function used by Manager; noop if the element isn't found
+    fn remove_element(&mut self, addr: EleAddrErased) {
+        if let Some(element_index)
+        =self.elements.iter_mut()
+        .position(|ele| ele.make_addr_erased().eq(&addr))
+        {
+            self.elements.remove(element_index);
+        }
     }
 }
 
@@ -309,10 +296,22 @@ impl Manager {
             element_destroy_queue: HashSet::new()
         }
     }
-    // TODO: Make this a non-mut function
-    fn find_ent_index(&mut self, addr: &EntAddr) -> Option<usize> {
-        self.entities.iter_mut().position(|ent| ent.make_addr().eq(addr))
+    
+    // Creation and destruction functions
+    pub fn create_entity(&mut self, name: String) ->    EntAddr {
+        self.entities.push(EntityHolder::new(name));
+        let res = self.entities.last_mut().unwrap().make_addr();
+        res.get_ref_mut().expect("Entity that was just created should exist").self_addr = res.clone();
+        res
     }
+    pub fn destroy_entity(&mut self, addr: EntAddr) {
+        self.entity_destroy_queue.insert(addr);
+    }
+    pub fn destroy_element(&mut self, addr: EleAddrErased) {
+        self.element_destroy_queue.insert(addr);
+    }
+    
+    // Manager activity functions
     pub fn resolve(&mut self) {
         {
             let cloned_destroy_queue = self.entity_destroy_queue.clone();
@@ -332,9 +331,7 @@ impl Manager {
                     let addr = self.entities[destroy_index].make_addr();
                     let mut r = addr.get_ref_mut().unwrap();
                     let ent_raw = r.deref_mut();
-                    if let Some(element_index) = ent_raw.find_element_index(to_destroy) {
-                        ent_raw.elements.remove(element_index);
-                    }
+                    ent_raw.remove_element(to_destroy.clone());
                 }
             }
         }
@@ -360,28 +357,20 @@ impl Manager {
 
         self.resolve();
     }
-    pub fn of_type<T>(&mut self) -> Vec<EleAddr<T>>  where
-    T: Element,
-    T: serde::Serialize,
-    T: serde::Deserialize<'static> {
+    
+    // Querying functions
+    pub fn of_type<T: Element>(&mut self) ->            Vec<EleAddr<T>> {
         self.entities.iter_mut()
         .filter(|ent| ent.make_addr().get_ref_mut().unwrap().query_element_addr::<T>().valid() )
         .map(|ent| { ent.make_addr().get_ref_mut().unwrap().query_element_addr::<T>() })
         .collect()
     }
-    pub fn create_entity(&mut self, name: String) -> EntAddr {
-        self.entities.push(EntityHolder::new(name));
-        let res = self.entities.last_mut().unwrap().make_addr();
-        res.get_ref_mut().expect("Entity that was just created should exist").self_addr = res.clone();
-        res
-    }
-    pub fn destroy_entity(&mut self, addr: EntAddr) {
-        self.entity_destroy_queue.insert(addr);
-    }
-    pub fn destroy_element(&mut self, addr: EleAddrErased) {
-        self.element_destroy_queue.insert(addr);
-    }
-    pub fn all_entities(&mut self) -> Vec<EntAddr> {
+    pub fn all_entities(&mut self) ->                   Vec<EntAddr> {
         self.entities.iter().map(|holder| holder.make_addr()).collect()
+    }
+
+    // Utility function
+    fn find_ent_index(&mut self, addr: &EntAddr) ->     Option<usize> {
+        self.entities.iter_mut().position(|ent| ent.make_addr().eq(addr))
     }
 }
