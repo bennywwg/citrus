@@ -17,6 +17,6 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Build
-      run: pwd; ls; cargo build --verbose
+      run: cd ecs; cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose
+      run: cd ecs; cargo test --verbose
