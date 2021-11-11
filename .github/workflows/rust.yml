@@ -16,6 +16,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: Fetch Submodules
+      run: git submodule update --init --recursive
     - name: Build
       run: cd ecs; cargo build --verbose
     - name: Run tests
