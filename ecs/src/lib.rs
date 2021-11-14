@@ -23,7 +23,7 @@ mod tests {
 
     impl Element for PosRot { }
 
-    #[derive(Clone, Serialize)]
+    #[derive(Clone, Serialize, Deserialize)]
     pub struct Mesh {
         pub pos: EleAddr<PosRot>
     }

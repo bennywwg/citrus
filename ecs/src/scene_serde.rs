@@ -17,6 +17,17 @@ pub struct SceneSerde {
     creator_map: HashMap<TypeId, CreatorEntry>
 }
 
+enum SceneSerdeError {
+    InternalError(String),
+    SerdeError(Vec<serde_json::Error>)
+}
+
+impl From<serde_json::Error> for SceneSerdeError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::SerdeError(vec!(err))
+    }
+}
+
 impl SceneSerde {
     pub fn new() -> Self {
         Self {
@@ -44,30 +55,28 @@ impl SceneSerde {
     }
 
     // serde
-    pub fn deserialize_element_into(&mut self, ent: EntAddr, val: serde_json::Value) -> EleAddrErased {
+    pub fn deserialize_element_into(&mut self, ent: EntAddr, val: serde_json::Value) -> Result<EleAddrErased, SceneSerdeError> {
         #[derive(Deserialize)]
         struct ElementObj {
             name: String,
             payload: serde_json::Value
         }
 
-        let create_data = match serde_json::from_value::<ElementObj>(val) {
-            Ok(data) => data,
-            Err(_) => return EleAddrErased::new()
-        };
+        let create_data = serde_json::from_value::<ElementObj>(val)?;
 
-        let entry = match self.find_exact_creator(create_data.name.as_str()) {
-            Some(entry) => entry,
-            None => return EleAddrErased::new()
-        };
+        // find creator
+        let creator =
+        self.find_exact_creator(create_data.name.as_str())
+        .ok_or(SceneSerdeError::InternalError(format!("Element {} not registered", create_data.name)))?
+        .creator;
 
-        let mut erased = (entry.creator)(ent);
+        let mut erased = creator(ent);
 
         assert!(erased.valid());
 
-        erased.get_ref_mut().unwrap().ecs_deserialize(create_data.payload);
+        erased.get_ref_mut().unwrap().ecs_deserialize(create_data.payload)?;
 
-        erased
+        Ok(erased)
     }
     pub fn serialize_element(&mut self, ele: EleAddrErased) -> Option<serde_json::Value> {
         #[derive(Serialize)]
@@ -112,13 +121,11 @@ impl SceneSerde {
         .iter()
         .for_each(|ent| pairs.push((ent.clone(), set_mapping(Uuid::from_u128(ent.id as u128), ent.name.clone(), man))));
 
-        for pair in pairs.iter() {
-            for ele_payload in pair.0.eles.iter() {
-                if !self.deserialize_element_into(pair.1.clone(), ele_payload.clone()).valid() {
-                    println!("Deserializing element failed");
-                }
-            }
-        }
+        pairs.iter().map(|pair| {
+            pair.0.eles.iter().map(|ele_payload| {
+                self.deserialize_element_into(pair.1.clone(), ele_payload.clone())
+            })
+        });
 
         end_deserialize();
 

@@ -4,6 +4,8 @@ use std::cell::{Cell, RefCell};
 use std::any::{Any, TypeId};
 use std::hash::Hash;
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use uuid::Uuid;
 
 use crate::deserialize_context::*;
@@ -17,15 +19,33 @@ fn static_dyn_ref_from_concrete<T: Element>(concrete: &mut T) -> &'static mut dy
     unsafe { std::mem::transmute(concrete as &mut dyn Element) }
 }
 
-pub trait Element : 'static {
+
+pub trait ElementSerde : 'static {
+    fn ecs_serialize(&self) -> serde_json::Value;
+    fn ecs_deserialize(&mut self, _data: serde_json::Value) -> Result<(), serde_json::Error>;
+}
+
+pub trait Element : ElementSerde {
     fn update(&mut self, _man: &mut Manager, _owner: EntAddr) { }
     #[cfg(feature = "gen-imgui")]
     fn fill_ui(&mut self, ui: &imgui::Ui, _man: &mut Manager) {
         ui.text("Unimplemented ui");
     }
+}
 
-    fn ecs_serialize(&self) -> serde_json::Value { serde_json::Value::Null }
-    fn ecs_deserialize(&mut self, _data: serde_json::Value) { }
+impl<T: Element + Sized + 'static + DeserializeOwned + Serialize + Clone> ElementSerde for T {
+    fn ecs_serialize(&self) -> serde_json::Value {
+        serde_json::to_value::<T>(self.clone()).unwrap()
+    }
+    fn ecs_deserialize(&mut self, data: serde_json::Value) -> Result<(), serde_json::Error> {
+        match serde_json::from_value::<T>(data) {
+            Ok(res) => {
+                *self = res;
+                Ok(())
+            },
+            Err(err) => Err(err)
+        }
+    }
 }
 
 pub struct ElementHolder {

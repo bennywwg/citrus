@@ -4,7 +4,6 @@ mod support;
 use ecs::{element::*, entity::*, scene_editor::*, scene_serde::*};
 use serde::*;
 
-
 #[derive(Clone, Serialize, Deserialize)]
 struct A {
     val: i32
@@ -32,6 +31,7 @@ impl Element for B {
         println!("B: val = {}", self.val);
         self.val += 10;
     }
+    /*
     fn ecs_serialize(&self) -> serde_json::Value {
         serde_json::to_value(&self).unwrap()
     }
@@ -41,6 +41,7 @@ impl Element for B {
             Err(er) => println!("{:?}", er)
         };
     }
+    */
     
     fn fill_ui(&mut self, ui: &imgui::Ui, man: &mut Manager) {
         ecs::editor_helpers::select_entity(&mut self.other, "other", ui, man);
@@ -49,20 +50,9 @@ impl Element for B {
 }
 
 fn main() {
-    /*
-    println!("{:?}", match nfd::open_file_dialog(None, None).unwrap() {
-        nfd::Response::Okay(val) => val,
-        _ => panic!()
-    });
-    */
-
-    //let a: EntAddr = serde_json::from_value(serde_json::Value::Null).unwrap();
-
     let mut manager = Manager::new();
 
-    let _ent = manager.create_entity("Baba booie".to_string());
-
-    //manager.update();
+    manager.create_entity("Baba booie".to_string());
 
     let mut se = SceneSerde::new();
     let mut ed = SceneEditor::new();
