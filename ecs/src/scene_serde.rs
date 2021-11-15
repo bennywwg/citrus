@@ -1,4 +1,4 @@
-use std::{any::{Any, TypeId}, collections::HashMap, rc::Rc};
+use std::{any::{Any, TypeId}, collections::HashMap, fmt::Debug, rc::Rc};
 use serde::*;
 use uuid::Uuid;
 
@@ -17,7 +17,8 @@ pub struct SceneSerde {
     creator_map: HashMap<TypeId, CreatorEntry>
 }
 
-enum SceneSerdeError {
+#[derive(Debug)]
+pub enum SceneSerdeError {
     InternalError(String),
     SerdeError(Vec<serde_json::Error>)
 }
@@ -53,31 +54,27 @@ impl SceneSerde {
             id: std::any::TypeId::of::<T>()
         });
     }
+    
+    pub fn deserialize_empty_into(&self, ent: EntAddr, name: String) -> Result<EleAddrErased, SceneSerdeError> {
+        // find creator
+        let entry =
+        self.find_exact_creator(name.as_str())
+        .ok_or(SceneSerdeError::InternalError(format!("Element {} not registered", name)))?;
 
-    // serde
-    pub fn deserialize_element_into(&mut self, ent: EntAddr, val: serde_json::Value) -> Result<EleAddrErased, SceneSerdeError> {
-        #[derive(Deserialize)]
-        struct ElementObj {
-            name: String,
-            payload: serde_json::Value
+
+        {
+            let cloned = ent.clone();
+            let mut ent_ref = cloned.get_ref_mut().unwrap();
+            assert!(!ent_ref.query_element_addr_by_id(&entry.id).valid());
         }
 
-        let create_data = serde_json::from_value::<ElementObj>(val)?;
-
-        // find creator
-        let creator =
-        self.find_exact_creator(create_data.name.as_str())
-        .ok_or(SceneSerdeError::InternalError(format!("Element {} not registered", create_data.name)))?
-        .creator;
-
-        let mut erased = creator(ent);
+        let erased = (entry.creator)(ent);
 
         assert!(erased.valid());
 
-        erased.get_ref_mut().unwrap().ecs_deserialize(create_data.payload)?;
-
         Ok(erased)
     }
+
     pub fn serialize_element(&mut self, ele: EleAddrErased) -> Option<serde_json::Value> {
         #[derive(Serialize)]
         struct ElementObj {
@@ -91,17 +88,25 @@ impl SceneSerde {
 
         let creator = self.find_exact_creator_by_id(ele.get_element_type_id().unwrap()).unwrap();
 
+        let payload = ele.get_ref().unwrap().ecs_serialize();
+
         Some(serde_json::to_value(ElementObj {
             name: creator.name,
-            payload: ele.get_ref().unwrap().ecs_serialize()
+            payload
         }).unwrap())
     }
     pub fn deserialize_scene(&mut self, man: &mut Manager, content: serde_json::Value) -> Option<Vec<EntAddr>> {
         #[derive(Deserialize, Clone)]
+        struct EleObj {
+            name: String,
+            payload: serde_json::Value
+        }
+
+        #[derive(Deserialize, Clone)]
         struct EntObj {
             name: String,
             id: i64,
-            eles: Vec<serde_json::Value>
+            eles: Vec<EleObj>
         }
 
         let r = serde_json::from_value::<Vec<EntObj>>(content);
@@ -121,10 +126,32 @@ impl SceneSerde {
         .iter()
         .for_each(|ent| pairs.push((ent.clone(), set_mapping(Uuid::from_u128(ent.id as u128), ent.name.clone(), man))));
 
+        // First create empty elements in their respective entities so no EleAddr deserialize
+        // fails due to the element not yet being added
+        
+        struct EleAddrDeserializeState {
+            ele: EleAddrErased,
+            payload: serde_json::Value
+        }
+
+        let refs =
         pairs.iter().map(|pair| {
-            pair.0.eles.iter().map(|ele_payload| {
-                self.deserialize_element_into(pair.1.clone(), ele_payload.clone())
+            pair.0.eles.iter().map(|ele_obj| {
+                self.deserialize_empty_into(pair.1.clone(), ele_obj.name.clone())
+                .map(|ele| EleAddrDeserializeState {
+                    ele,
+                    payload: ele_obj.payload.clone()
+                })
             })
+            .filter(|res| res.is_ok() )
+            .map(|res| res.ok().unwrap() )
+            .collect::<Vec<EleAddrDeserializeState>>()
+        })
+        .flatten()
+        .collect::<Vec<EleAddrDeserializeState>>();
+
+        refs.iter().for_each(|ele_state| {
+            ele_state.ele.clone().get_ref_mut().unwrap().ecs_deserialize(ele_state.payload.clone());
         });
 
         end_deserialize();
@@ -143,9 +170,11 @@ impl SceneSerde {
             =content
             .iter()
             .map(|ea| {
-                let eles: Vec<serde_json::Value>
-                    =ea.get_ref_mut().unwrap()
-                    .erased_elements()
+                let erased_eles=
+                ea.get_ref_mut().unwrap()
+                .erased_elements();
+                let eles: Vec<serde_json::Value>=
+                    erased_eles
                     .iter().filter_map(|ele| {
                         self.serialize_element(ele.clone())
                     })

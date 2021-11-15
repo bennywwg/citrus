@@ -142,9 +142,10 @@ impl Serialize for EntAddr {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer {
-        match self.get_ref() {
-            Some(e) => serializer.serialize_i64(e.get_id().as_u128() as i64),
-            None => serializer.serialize_i64(0i64)
+        // intentionally provoke a panic here if valid but get_ref fails
+        match self.valid() {
+            true => serializer.serialize_i64(self.get_ref().unwrap().get_id().as_u128() as i64),
+            false => serializer.serialize_i64(0i64)
         }
     }
 }

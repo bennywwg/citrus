@@ -155,6 +155,8 @@ impl SceneEditor {
         .size([400.0, 400.0], Condition::FirstUseEver)
         .build(|| {
             if ui.button_with_size("Load Scene", [200_f32, 20_f32]) {
+                self.load_scene(scene, man, "./test.json");
+                /*
                 if let Ok(to_load) = nfd::open_file_dialog(Some("json"), None) {
                     match to_load {
                         nfd::Response::Okay(file) => {
@@ -162,10 +164,12 @@ impl SceneEditor {
                         },
                         _ => println!("eh")
                     };
-                }
+                }*/
             }
 
             if ui.button_with_size("Save Scene", [200_f32, 20_f32]) {
+                self.save_scene(scene, man, "./test.json");
+                /*
                 if let Ok(to_load) = nfd::open_save_dialog(Some("json"), None) {
                     match to_load {
                         nfd::Response::Okay(file) => {
@@ -173,7 +177,7 @@ impl SceneEditor {
                         },
                         _ => println!("eh")
                     };
-                }
+                }*/
             }
             if ui.button_with_size("Create Entity", [250_f32, 20_f32]) {
                 man.create_entity(String::new());
