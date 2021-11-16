@@ -58,7 +58,7 @@ impl SceneEditor {
     fn load_scene(&mut self, scene: &mut SceneSerde, man: &mut Manager, name: &str) {
         let st = fs::read_to_string(name).unwrap();
         let val = serde_json::from_str(&st).unwrap();
-        println!("{:?}", scene.deserialize_scene(man, val).unwrap().len());
+        scene.deserialize_scene(man, val).unwrap();
     }
     
     fn render_ui_for_ent(&mut self, ui: &Ui, scene: &mut SceneSerde, man: &mut Manager, selected: Rc<RefCell<SelectedEnt>>) -> bool {
