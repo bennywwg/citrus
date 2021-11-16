@@ -163,7 +163,8 @@ impl<'de, T: Element> serde::Deserialize<'de> for EleAddr<T> {
             false => 0i64
         };
 
-        Ok(EleAddr::<T>::new_needs_mapping(v))
+        let mut ent_ref = ent.get_ref_mut().unwrap();
+        Ok(ent_ref.query_element_addr::<T>())
     }
 }
 
@@ -174,14 +175,6 @@ impl<T: Element> EleAddr<T> {
             internal: Weak::new(),
             owner: EntAddr::new(),
             init_state: None
-        }
-    }
-    pub fn new_needs_mapping(state: EleAddrSerdeState) -> Self {
-        Self {
-            data: std::ptr::null_mut(),
-            internal: Weak::new(),
-            owner: EntAddr::new(),
-            init_state: Some(state)
         }
     }
     pub fn valid(&self) -> bool {

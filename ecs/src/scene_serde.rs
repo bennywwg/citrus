@@ -151,7 +151,7 @@ impl SceneSerde {
         .collect::<Vec<EleAddrDeserializeState>>();
 
         refs.iter().for_each(|ele_state| {
-            ele_state.ele.clone().get_ref_mut().unwrap().ecs_deserialize(ele_state.payload.clone());
+            ele_state.ele.clone().get_ref_mut().unwrap().ecs_deserialize(ele_state.payload.clone()).unwrap();
         });
 
         end_deserialize();
