@@ -409,6 +409,16 @@ impl Manager {
                 return Ok(());
             }
 
+            let mut curr = parent.clone();
+            while curr.valid() {
+                if curr == child {
+                    return Err(EntReferenceCycleError);
+                } else {
+                    let new_curr = curr.get_ref().unwrap().parent_addr.clone();
+                    curr = new_curr;
+                }
+            }
+
             // this code is *bad*
             {
                 let mut op_on_vec = |op: &dyn Fn(&mut Vec<EntAddr>) -> usize| {
@@ -425,16 +435,6 @@ impl Manager {
                 let index = op_on_vec(&|vec| vec.iter().position(|addr| *addr == child).unwrap());
 
                 op_on_vec(&|vec| { vec.remove(index); 0 });
-            }
-
-            let mut curr = parent.clone();
-            while curr.valid() {
-                if curr == child {
-                    return Err(EntReferenceCycleError);
-                } else {
-                    let new_curr = curr.get_ref().unwrap().parent_addr.clone();
-                    curr = new_curr;
-                }
             }
 
             if parent.valid() {

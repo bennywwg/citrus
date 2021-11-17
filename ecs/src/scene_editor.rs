@@ -2,6 +2,7 @@ use std::{any::TypeId, cell::RefCell, fs, rc::Rc};
 use uuid::Uuid;
 use imgui::*;
 
+use crate::editor_helpers;
 use crate::entity::*;
 use crate::scene_serde::*;
 
@@ -79,6 +80,15 @@ impl SceneEditor {
         .build(move || {
             {
                 ui.input_text(":Name", &mut ent_addr.get_ref_mut().unwrap().name).build();
+            }
+
+            {
+                let mut parent = ent_addr.get_ref().unwrap().get_parent();
+                if editor_helpers::select_entity(&mut parent, "Parent", ui, man) {
+                    if let Err(_err) = man.reparent(ent_addr.clone(), parent.clone()) {
+                        println!("Reparenting would have created a cycle")
+                    };
+                }
             }
 
             ui.separator();
