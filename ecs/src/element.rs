@@ -113,8 +113,7 @@ impl Drop for ElementHolder {
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct EleAddrSerdeState {
-    ent_id: i64,
-    ele_id: String
+    ent_id: i64
 }
 
 // Element Ref
@@ -145,8 +144,7 @@ impl<T: Element> serde::Serialize for EleAddr<T> {
         };
 
         (EleAddrSerdeState {
-            ent_id: id,
-            ele_id: std::any::type_name::<T>().to_string() 
+            ent_id: id
         }).serialize(serializer)
     }
 }
@@ -155,16 +153,17 @@ impl<'de, T: Element> serde::Deserialize<'de> for EleAddr<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
     D: serde::Deserializer<'de> {
-        let mut v: EleAddrSerdeState = serde::Deserialize::deserialize(deserializer)?;
+        let v: EleAddrSerdeState = serde::Deserialize::deserialize(deserializer)?;
 
         let ent = map_id(Uuid::from_u128(v.ent_id as u128));
-        v.ent_id = match ent.valid() {
-            true => ent.get_ref().unwrap().get_id().as_u128() as i64,
-            false => 0i64
-        };
 
-        let mut ent_ref = ent.get_ref_mut().unwrap();
-        Ok(ent_ref.query_element_addr::<T>())
+        match ent.valid() {
+            true => {
+                let mut ent_ref = ent.get_ref_mut().unwrap();
+                Ok(ent_ref.query_element_addr::<T>())
+            },
+            false => Ok(EleAddr::<T>::new())
+        }
     }
 }
 

@@ -168,7 +168,7 @@ impl SceneEditor {
             }
 
             if ui.button_with_size("Save Scene", [200_f32, 20_f32]) {
-                self.save_scene(scene, man, "./test.json");
+                self.save_scene(scene, man, "./test.json").unwrap();
                 /*
                 if let Ok(to_load) = nfd::open_save_dialog(Some("json"), None) {
                     match to_load {

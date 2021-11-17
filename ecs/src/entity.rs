@@ -8,9 +8,13 @@ use uuid::Uuid;
 use crate::deserialize_context::*;
 use crate::element::*;
 
+pub struct EntReferenceCycleError;
+
 pub struct Entity {
     elements: Vec<ElementHolder>,
     self_addr: EntAddr,
+    parent_addr: EntAddr,
+    children_addrs: Vec<EntAddr>,
     id: Uuid,
     pub name: String,
 }
@@ -49,7 +53,7 @@ impl Entity {
         self.elements.iter_mut()
         .find(|ele| ele.get_element_type_id() == *id)
         .map_or(EleAddrErased::new(), |ele| ele.make_addr_erased())
-    }  
+    }
     
     // Querying conveniance functions (just call get_ref/_mut on the address)
     pub fn query_element<T: Element>(&mut self) ->              Option<EleRef<T>> {
@@ -63,6 +67,16 @@ impl Entity {
     }
     pub fn query_element_mut_by_id(&mut self, id: &TypeId) ->   Option<EleRefErasedMut> {
         self.query_element_addr_by_id(id).get_ref_mut()
+    }
+
+    pub fn get_parent(&self) ->                                 EntAddr {
+        self.parent_addr.clone()
+    }
+    pub fn get_children(&self) ->                               Vec<EntAddr> {
+        self.children_addrs.clone()
+    }
+    pub fn get_all_children(&self) ->                           Vec<EntAddr> {
+        todo!();
     }
     
     // Private function used by Manager; noop if the element isn't found
@@ -87,6 +101,8 @@ impl EntityHolder {
             data: Box::into_raw(Box::new(Entity {
                 elements: Vec::new(),
                 self_addr: EntAddr::new(),
+                parent_addr: EntAddr::new(),
+                children_addrs: vec!(),
                 id: Uuid::new_v4(),
                 name
             })),
@@ -305,8 +321,15 @@ impl Manager {
         res.get_ref_mut().expect("Entity that was just created should exist").self_addr = res.clone();
         res
     }
-    pub fn destroy_entity(&mut self, addr: EntAddr) {
+    pub fn dissolve_entity(&mut self, addr: EntAddr) {
         self.entity_destroy_queue.insert(addr);
+    }
+    pub fn destroy_entity(&mut self, addr: EntAddr) {
+        if !addr.valid() { return; }
+        self.dissolve_entity(addr.clone());
+        for child in addr.get_ref().unwrap().get_children().iter() {
+            self.destroy_entity(child.clone());
+        }
     }
     pub fn destroy_element(&mut self, addr: EleAddrErased) {
         self.element_destroy_queue.insert(addr);
@@ -360,14 +383,48 @@ impl Manager {
     }
     
     // Querying functions
-    pub fn of_type<T: Element>(&mut self) ->            Vec<EleAddr<T>> {
+    pub fn of_type<T: Element>(&mut self) ->                    Vec<EleAddr<T>> {
         self.entities.iter_mut()
         .filter(|ent| ent.make_addr().get_ref_mut().unwrap().query_element_addr::<T>().valid() )
         .map(|ent| { ent.make_addr().get_ref_mut().unwrap().query_element_addr::<T>() })
         .collect()
     }
-    pub fn all_entities(&mut self) ->                   Vec<EntAddr> {
+    pub fn all_entities(&mut self) ->                           Vec<EntAddr> {
         self.entities.iter().map(|holder| holder.make_addr()).collect()
+    }
+
+    // Hierarchy
+    // performs cycle check, doesn't reparent if a cycle would be formed
+    pub fn reparent(&self, child: EntAddr, parent: EntAddr) ->  Result<(), EntReferenceCycleError> {
+        {
+            let child_ref = child.get_ref().unwrap();
+
+            if child_ref.parent_addr == parent {
+                return Ok(());
+            }
+
+            if child_ref.parent_addr.valid() {
+                let child_addrs_ref = &mut child_ref.parent_addr.get_ref_mut().unwrap().children_addrs;
+                let index = child_addrs_ref.iter().position(|addr| *addr == child).unwrap();
+                child_addrs_ref.remove(index);
+            }
+
+            let mut curr = parent.clone();
+            while curr.valid() {
+                if curr == child {
+                    return Err(EntReferenceCycleError);
+                } else {
+                    let new_curr = curr.get_ref().unwrap().parent_addr.clone();
+                    curr = new_curr;
+                }
+            }
+
+            parent.get_ref_mut().unwrap().children_addrs.push(child.clone());
+        }
+
+        child.get_ref_mut().unwrap().parent_addr = parent;
+        
+        Ok(())
     }
 
     // Utility function
