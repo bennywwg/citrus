@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::deserialize_context::*;
 use crate::element::*;
 
+#[derive(Debug)]
 pub struct EntReferenceCycleError;
 
 pub struct Entity {
@@ -142,7 +143,7 @@ pub struct EntAddr {
 
 impl PartialEq for EntAddr {
     fn eq(&self, other: &Self) -> bool {
-        self.data == other.data
+        (self.data == other.data) || (!self.valid() && !other.valid())
     }
 }
 
@@ -301,6 +302,7 @@ impl<'a> DerefMut for EntRefMut<'a> {
 // Manager
 pub struct Manager {
     entities: Vec<EntityHolder>,
+    root_entities: Vec<EntAddr>,
     entity_destroy_queue: HashSet<EntAddr>,
     element_destroy_queue: HashSet<EleAddrErased>
 }
@@ -309,6 +311,7 @@ impl Manager {
     pub fn new() -> Self {
         Self {
             entities: Vec::new(),
+            root_entities: Vec::new(),
             entity_destroy_queue: HashSet::new(),
             element_destroy_queue: HashSet::new()
         }
@@ -318,18 +321,15 @@ impl Manager {
     pub fn create_entity(&mut self, name: String) ->    EntAddr {
         self.entities.push(EntityHolder::new(name));
         let res = self.entities.last_mut().unwrap().make_addr();
+        self.root_entities.push(res.clone());
         res.get_ref_mut().expect("Entity that was just created should exist").self_addr = res.clone();
         res
     }
-    pub fn dissolve_entity(&mut self, addr: EntAddr) {
-        self.entity_destroy_queue.insert(addr);
-    }
     pub fn destroy_entity(&mut self, addr: EntAddr) {
-        if !addr.valid() { return; }
-        self.dissolve_entity(addr.clone());
         for child in addr.get_ref().unwrap().get_children().iter() {
             self.destroy_entity(child.clone());
         }
+        self.entity_destroy_queue.insert(addr);
     }
     pub fn destroy_element(&mut self, addr: EleAddrErased) {
         self.element_destroy_queue.insert(addr);
@@ -342,6 +342,9 @@ impl Manager {
             self.entity_destroy_queue.clear();
             for to_destroy in cloned_destroy_queue.iter() {
                 if let Some(destroy_index) = self.find_ent_index(to_destroy) {
+                    self.reparent(to_destroy.clone(), EntAddr::new()).unwrap();
+                    let index = self.root_entities.iter().position(|ent| *ent == *to_destroy).unwrap();
+                    self.root_entities.remove(index);
                     self.entities.remove(destroy_index);
                 }
             }
@@ -389,13 +392,16 @@ impl Manager {
         .map(|ent| { ent.make_addr().get_ref_mut().unwrap().query_element_addr::<T>() })
         .collect()
     }
-    pub fn all_entities(&mut self) ->                           Vec<EntAddr> {
+    pub fn all_entities(&self) ->                               Vec<EntAddr> {
         self.entities.iter().map(|holder| holder.make_addr()).collect()
+    }
+    pub fn root_entities(&self) ->                                  Vec<EntAddr> {
+        self.root_entities.clone()
     }
 
     // Hierarchy
     // performs cycle check, doesn't reparent if a cycle would be formed
-    pub fn reparent(&self, child: EntAddr, parent: EntAddr) ->  Result<(), EntReferenceCycleError> {
+    pub fn reparent(&mut self, child: EntAddr, parent: EntAddr) ->  Result<(), EntReferenceCycleError> {
         {
             let child_ref = child.get_ref().unwrap();
 
@@ -403,10 +409,22 @@ impl Manager {
                 return Ok(());
             }
 
-            if child_ref.parent_addr.valid() {
-                let child_addrs_ref = &mut child_ref.parent_addr.get_ref_mut().unwrap().children_addrs;
-                let index = child_addrs_ref.iter().position(|addr| *addr == child).unwrap();
-                child_addrs_ref.remove(index);
+            // this code is *bad*
+            {
+                let mut op_on_vec = |op: &dyn Fn(&mut Vec<EntAddr>) -> usize| {
+                    match child_ref.parent_addr.valid() {
+                        true => {
+                            op(&mut child_ref.parent_addr
+                            .get_ref_mut().unwrap()
+                            .children_addrs)
+                        },
+                        false => op(&mut self.root_entities)
+                    }
+                };
+
+                let index = op_on_vec(&|vec| vec.iter().position(|addr| *addr == child).unwrap());
+
+                op_on_vec(&|vec| { vec.remove(index); 0 });
             }
 
             let mut curr = parent.clone();
@@ -419,7 +437,11 @@ impl Manager {
                 }
             }
 
-            parent.get_ref_mut().unwrap().children_addrs.push(child.clone());
+            if parent.valid() {
+                parent.get_ref_mut().unwrap().children_addrs.push(child.clone());
+            } else {
+                self.root_entities.push(child.clone());
+            }
         }
 
         child.get_ref_mut().unwrap().parent_addr = parent;

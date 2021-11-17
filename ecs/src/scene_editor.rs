@@ -142,6 +142,30 @@ impl SceneEditor {
 
         opened
     }
+
+    fn render_ent_recurse(&mut self, ui: &Ui, man: &mut Manager, ent: EntAddr, level: i32) {
+        let cursor = ui.cursor_pos();
+        let id_token = ui.push_id(ent.get_ref().unwrap().get_id().to_string());
+
+        ui.set_cursor_pos([cursor[0] + (level * 30) as f32, cursor[1]]);
+        if ui.button_with_size(format!("Select \"{}\"", ent.get_ref().unwrap().name), [250_f32, 20_f32]) {
+            if !self.selected_list.iter().any(|e| (**e).borrow().addr == ent) {
+                self.selected_list.push(Rc::new(RefCell::new(SelectedEnt::new(ent.clone()))));
+            }
+        }
+        id_token.pop();
+
+        ui.set_cursor_pos([cursor[0] + 270_f32 + (level * 30) as f32, cursor[1]]);
+        if ui.button_with_size(format!("Destroy {}", uuid_truncated(ent.get_ref().unwrap().get_id())), [130_f32, 20_f32]) {
+            man.destroy_entity(ent.clone());
+        }
+
+        let children = ent.get_ref().unwrap().get_children();
+        for child in children {
+            self.render_ent_recurse(ui, man, child, level + 1);
+        }
+    }
+
     pub fn render(&mut self, ui: &Ui, scene: &mut SceneSerde, man: &mut Manager) {
         let mut new_selected = Vec::new();
         for ent in self.selected_list.iter() {
@@ -185,21 +209,9 @@ impl SceneEditor {
             ui.separator();
             ui.input_text(":Search Entities", &mut self.entity_search).build();
             ui.separator();
-
-            for ent in self.find_entities(man, self.entity_search.as_str()).iter() {
-                let cursor = ui.cursor_pos();
-                let id_token = ui.push_id(ent.get_ref().unwrap().get_id().to_string());
-                if ui.button_with_size(format!("Select \"{}\"", ent.get_ref().unwrap().name), [250_f32, 20_f32]) {
-                    if !self.selected_list.iter().any(|e| (**e).borrow().addr == *ent) {
-                        self.selected_list.push(Rc::new(RefCell::new(SelectedEnt::new(ent.clone()))));
-                    }
-                }
-                id_token.pop();
-
-                ui.set_cursor_pos([cursor[0] + 270_f32, cursor[1]]);                
-                if ui.button_with_size(format!("Destroy {}", uuid_truncated(ent.get_ref().unwrap().get_id())), [130_f32, 20_f32]) {
-                    man.destroy_entity(ent.clone());
-                }
+            
+            for ent in man.root_entities().iter() {
+                self.render_ent_recurse(ui, man, ent.clone(), 0);
             }
         });
         

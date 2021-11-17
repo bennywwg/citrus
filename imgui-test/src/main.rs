@@ -42,7 +42,9 @@ fn main() {
     let mut se =        SceneSerde::new();
     let mut ed =        SceneEditor::new();
 
-    ma.create_entity("Baba booie".to_string());
+    let a = ma.create_entity("Baba booie".to_string());
+    let b = ma.create_entity("Child".to_string());
+    ma.reparent(a, b).unwrap();
 
     se.register_element_creator(A { val: 0 }, "PosRot");
     se.register_element_creator(B { val: 2, other: EntAddr::new(), ele: EleAddr::new() }, "Element B");
