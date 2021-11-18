@@ -105,6 +105,7 @@ impl SceneSerde {
         #[derive(Deserialize, Clone)]
         struct EntObj {
             name: String,
+            parent_payload: serde_json::Value,
             id: i64,
             eles: Vec<EleObj>
         }
@@ -125,6 +126,12 @@ impl SceneSerde {
         ent_objs
         .iter()
         .for_each(|ent| pairs.push((ent.clone(), set_mapping(Uuid::from_u128(ent.id as u128), ent.name.clone(), man))));
+        
+        // deserialize and reparent to restore the hierarchy
+        ent_objs.iter().for_each(|ent| {
+            let parent_addr = serde_json::from_value::<EntAddr>(ent.parent_payload.clone()).unwrap();
+            man.reparent(map_id(Uuid::from_u128(ent.id as u128)), parent_addr).unwrap();
+        });
 
         // First create empty elements in their respective entities so no EleAddr deserialize
         // fails due to the element not yet being added
@@ -162,6 +169,7 @@ impl SceneSerde {
         #[derive(Serialize)]
         struct EntObj {
             name: String,
+            parent_payload: serde_json::Value,
             id: i64,
             eles: Vec<serde_json::Value>
         }
@@ -182,6 +190,7 @@ impl SceneSerde {
 
                 EntObj {
                     name: ea.get_ref().unwrap().name.clone(),
+                    parent_payload: serde_json::to_value(ea.get_ref().unwrap().get_parent()).unwrap(),
                     id: match ea.get_ref() {
                         None => 0i64,
                         Some(e) => e.get_id().as_u128() as i64

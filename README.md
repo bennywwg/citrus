@@ -10,7 +10,7 @@ There are two core concepts in ecs: the struct Entity, and the trait Element. ec
 #### `ElementHolder`, `EntityHolder`
 These act as strong pointers that wrap a dynamically typed `Element` or `Entity`, respectively. `drop`ing these while any references to these objects exist will panic.
 
-#### `CompononentAddr<T>`, `EntAddr`
+#### `EleAddr<T>`, `EntAddr`
 These are weak pointers that wrap either an instance of a element or entity, respectively. They become invalid if the wrapped object is dropped, and are then unable to produce references.
 
 #### `EleRef<T>`, `EleRefMut<T>`, `EntRef`, `EntRefMut`

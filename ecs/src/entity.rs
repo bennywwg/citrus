@@ -131,11 +131,6 @@ impl Drop for EntityHolder {
 }
 
 #[derive(Clone)]
-pub struct EntAddrInitState {
-    pub id: Uuid
-}
-
-#[derive(Clone)]
 pub struct EntAddr {
     data: *mut Entity,
     internal: Weak<Cell<i64>>
