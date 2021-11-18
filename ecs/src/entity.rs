@@ -326,9 +326,6 @@ impl Manager {
         res
     }
     pub fn destroy_entity(&mut self, addr: EntAddr) {
-        for child in addr.get_ref().unwrap().get_children().iter() {
-            self.destroy_entity(child.clone());
-        }
         self.entity_destroy_queue.insert(addr);
     }
     pub fn destroy_element(&mut self, addr: EleAddrErased) {
@@ -338,15 +335,23 @@ impl Manager {
     // Manager activity functions
     pub fn resolve(&mut self) {
         {
-            let cloned_destroy_queue = self.entity_destroy_queue.clone();
+            let mut tmp_destroy_queue = self.entity_destroy_queue.iter().map(|ent| ent.clone()).collect::<Vec<EntAddr>>();
             self.entity_destroy_queue.clear();
-            for to_destroy in cloned_destroy_queue.iter() {
-                if let Some(destroy_index) = self.find_ent_index(to_destroy) {
-                    self.reparent(to_destroy.clone(), EntAddr::new()).unwrap();
-                    let index = self.root_entities.iter().position(|ent| *ent == *to_destroy).unwrap();
-                    self.root_entities.remove(index);
-                    self.entities.remove(destroy_index);
+
+            while !tmp_destroy_queue.is_empty() {
+                let destroying = tmp_destroy_queue[tmp_destroy_queue.len() - 1].clone();
+                self.reparent(destroying.clone(), EntAddr::new()).unwrap();
+                tmp_destroy_queue.remove(tmp_destroy_queue.len() - 1);
+                let children = destroying.get_ref().unwrap().get_children();
+                for child in children.into_iter() {
+                    self.reparent(child.clone(), EntAddr::new()).unwrap();
+                    assert!(child.valid());
+                    tmp_destroy_queue.push(child);
                 }
+                let root_index = self.root_entities.iter().position(|ent| *ent == destroying).unwrap();
+                self.root_entities.remove(root_index);
+                let index = self.find_ent_index(&destroying).unwrap();
+                self.entities.remove(index);
             }
         }
 
@@ -403,6 +408,8 @@ impl Manager {
     // performs cycle check, doesn't reparent if a cycle would be formed
     pub fn reparent(&mut self, child: EntAddr, parent: EntAddr) ->  Result<(), EntReferenceCycleError> {
         {
+            assert!(child.valid());
+
             let child_ref = child.get_ref().unwrap();
 
             if child_ref.parent_addr == parent {
