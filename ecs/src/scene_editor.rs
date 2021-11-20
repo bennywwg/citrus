@@ -1,6 +1,7 @@
 use std::{any::TypeId, cell::RefCell, fs, rc::Rc};
 use uuid::Uuid;
 use imgui::*;
+use std::collections::HashSet;
 
 use crate::editor_helpers;
 use crate::entity::*;
@@ -30,7 +31,8 @@ impl SelectedEnt {
 pub struct SceneEditor {
     entity_search: String,
     creator_search: String,
-    selected_list: Vec<Rc<RefCell<SelectedEnt>>>
+    selected_list: Vec<Rc<RefCell<SelectedEnt>>>,
+    ents_expanded: HashSet<EntAddr>,
 }
 
 impl SceneEditor {
@@ -38,7 +40,8 @@ impl SceneEditor {
         Self {
             entity_search: "".to_string(),
             creator_search: "".to_string(),
-            selected_list: Vec::new()
+            selected_list: Vec::new(),
+            ents_expanded: HashSet::new()
         }
     }
     fn find_entities(&self, man: &mut Manager, name: &str) -> Vec<EntAddr> {
@@ -157,7 +160,20 @@ impl SceneEditor {
         let cursor = ui.cursor_pos();
         let id_token = ui.push_id(ent.get_ref().unwrap().get_id().to_string());
 
-        ui.set_cursor_pos([cursor[0] + (level * 30) as f32, cursor[1]]);
+        // Collapse or expand the entity hierarchy
+        let needs_expansion_button = ent.get_ref().unwrap().get_children().len() > 0;
+        let change_expansion = needs_expansion_button && ui.button_with_size("", [20_f32, 20_f32]);
+        let show_children = self.ents_expanded.contains(&ent);
+
+        if change_expansion {
+            if show_children {
+                self.ents_expanded.remove(&ent);
+            } else {
+                self.ents_expanded.insert(ent.clone());
+            }
+        }
+
+        ui.set_cursor_pos([cursor[0] + 30f32 + (level * 30) as f32, cursor[1]]);
         if ui.button_with_size(format!("Select \"{}\"", ent.get_ref().unwrap().name), [250_f32, 20_f32]) {
             if !self.selected_list.iter().any(|e| (**e).borrow().addr == ent) {
                 self.selected_list.push(Rc::new(RefCell::new(SelectedEnt::new(ent.clone()))));
@@ -165,14 +181,16 @@ impl SceneEditor {
         }
         id_token.pop();
 
-        ui.set_cursor_pos([cursor[0] + 270_f32 + (level * 30) as f32, cursor[1]]);
+        ui.set_cursor_pos([cursor[0] + 300_f32 + (level * 30) as f32, cursor[1]]);
         if ui.button_with_size(format!("Destroy {}", uuid_truncated(ent.get_ref().unwrap().get_id())), [130_f32, 20_f32]) {
             man.destroy_entity(ent.clone());
         }
 
         let children = ent.get_ref().unwrap().get_children();
-        for child in children {
-            self.render_ent_recurse(ui, man, child, level + 1);
+        if show_children {
+            for child in children {
+                self.render_ent_recurse(ui, man, child, level + 1);
+            }
         }
     }
 
@@ -186,7 +204,7 @@ impl SceneEditor {
         self.selected_list = new_selected;
 
         Window::new(ui,"Manager")
-        .size([400.0, 400.0], Condition::FirstUseEver)
+        .position([0.0, 0.0], Condition::Always)
         .build(|| {
             if ui.button_with_size("Load Scene", [200_f32, 20_f32]) {
                 self.load_scene(scene, man, "./test.json");
