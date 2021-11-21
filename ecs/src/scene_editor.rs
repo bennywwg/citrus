@@ -15,7 +15,8 @@ fn uuid_truncated(id: Uuid) -> String {
 struct SelectedEnt {
     addr: EntAddr,
     selected_element: Option<TypeId>,
-    selected_element_label: String
+    selected_element_label: String,
+    creator_search: String
 }
 
 impl SelectedEnt {
@@ -23,14 +24,13 @@ impl SelectedEnt {
         Self {
             addr,
             selected_element: None,
-            selected_element_label: String::new()
+            selected_element_label: String::new(),
+            creator_search: "".to_string()
         }
     }
 }
 
 pub struct SceneEditor {
-    entity_search: String,
-    creator_search: String,
     selected_list: Vec<Rc<RefCell<SelectedEnt>>>,
     ents_expanded: HashSet<EntAddr>,
 }
@@ -38,21 +38,9 @@ pub struct SceneEditor {
 impl SceneEditor {
     pub fn new() -> Self {
         Self {
-            entity_search: "".to_string(),
-            creator_search: "".to_string(),
             selected_list: Vec::new(),
             ents_expanded: HashSet::new()
         }
-    }
-    fn find_entities(&self, man: &mut Manager, name: &str) -> Vec<EntAddr> {
-        let mut res = Vec::new();
-        for b in man.all_entities().iter() {
-            let ent_name = b.get_ref_mut().unwrap().name.clone();
-            if ent_name.contains(name) {
-                res.push(b.clone());
-            }
-        }
-        res
     }
     fn save_scene(&mut self, scene: &mut SceneSerde, man: &mut Manager, name: &str) -> Result<(), std::io::Error> {
         let all_ents = man.all_entities();
@@ -95,8 +83,8 @@ impl SceneEditor {
             }
 
             ui.separator();
-            ui.input_text(":Search Elements", &mut self.creator_search).build();
-            let list = scene.find_creators(self.creator_search.as_str());
+            ui.input_text(":Search Elements", &mut (*selected).borrow_mut().creator_search).build();
+            let list = scene.find_creators((*selected).borrow().creator_search.as_str());
             for entry in list.iter() {
                 let mut select_pos: Option<[f32; 2]> = None;
                 let style = ui.push_style_color(StyleColor::ButtonActive, [1_f32, 1_f32, 1_f32, 1_f32]);
@@ -234,9 +222,6 @@ impl SceneEditor {
             if ui.button_with_size("Create Entity", [250_f32, 20_f32]) {
                 man.create_entity(String::new());
             }
-            ui.separator();
-            ui.input_text(":Search Entities", &mut self.entity_search).build();
-            ui.separator();
             
             for ent in man.root_entities().iter() {
                 self.render_ent_recurse(ui, man, ent.clone(), 0);
