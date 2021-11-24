@@ -49,8 +49,22 @@ impl SceneEditor {
     }
     fn load_scene(&mut self, scene: &mut SceneSerde, man: &mut Manager, name: &str) {
         let st = fs::read_to_string(name).unwrap();
-        let val = serde_json::from_str(&st).unwrap();
-        scene.deserialize_scene(man, val).unwrap();
+        let val = match serde_json::from_str::<serde_json::Value>(&st) {
+            Ok(val) => val,
+            Err(err) => {
+                println!("{:?}", err);
+                return;
+            }
+        };
+        let res = scene.deserialize_scene(man, val);
+        match res {
+            Ok(val) => {
+                val.errors.iter().for_each(|err| println!("{:?}", err));
+            },
+            Err(err) => {
+                println!("{:?}", err);
+            }
+        }
     }
     
     fn render_ui_for_ent(&mut self, ui: &Ui, scene: &mut SceneSerde, man: &mut Manager, selected: Rc<RefCell<SelectedEnt>>) -> bool {
@@ -100,7 +114,7 @@ impl SceneEditor {
 
                         man.resolve();
 
-                        if  (*selected).borrow().selected_element == Some(entry.id) {
+                        if (*selected).borrow().selected_element == Some(entry.id) {
                             (*selected).borrow_mut().selected_element = None;
                             (*selected).borrow_mut().selected_element_label = "(None)".to_string();
                         }

@@ -6,6 +6,13 @@ use crate::element::*;
 use crate::entity::*;
 use crate::deserialize_context::*;
 
+#[derive(Debug)]
+pub enum SceneSerdeError {
+    CycleError(String),
+    MissingElementError(String),
+    SerdeError(serde_json::Error)
+}
+
 #[derive(Clone)]
 pub struct CreatorEntry {
     pub creator: Rc<Box<dyn Fn(EntAddr) -> EleAddrErased>>,
@@ -13,20 +20,13 @@ pub struct CreatorEntry {
     pub id: TypeId
 }
 
+pub struct SceneDeserResult {
+    pub ents: Vec<EntAddr>,
+    pub errors: Vec<SceneSerdeError>
+}
+
 pub struct SceneSerde {
     creator_map: HashMap<TypeId, CreatorEntry>
-}
-
-#[derive(Debug)]
-pub enum SceneSerdeError {
-    InternalError(String),
-    SerdeError(Vec<serde_json::Error>)
-}
-
-impl From<serde_json::Error> for SceneSerdeError {
-    fn from(err: serde_json::Error) -> Self {
-        Self::SerdeError(vec!(err))
-    }
 }
 
 impl SceneSerde {
@@ -59,8 +59,7 @@ impl SceneSerde {
         // find creator
         let entry =
         self.find_exact_creator(name.as_str())
-        .ok_or(SceneSerdeError::InternalError(format!("Element {} not registered", name)))?;
-
+        .ok_or(SceneSerdeError::MissingElementError(name))?;
 
         {
             let cloned = ent.clone();
@@ -75,7 +74,8 @@ impl SceneSerde {
         Ok(erased)
     }
 
-    pub fn serialize_element(&mut self, ele: EleAddrErased) -> Option<serde_json::Value> {
+    // Returns a Some(value) if ele is valid, otherwise returns None
+    pub fn serialize_element(&mut self, ele: &EleAddrErased) -> Option<serde_json::Value> {
         #[derive(Serialize)]
         struct ElementObj {
             name: String,
@@ -95,7 +95,7 @@ impl SceneSerde {
             payload
         }).unwrap())
     }
-    pub fn deserialize_scene(&mut self, man: &mut Manager, content: serde_json::Value) -> Option<Vec<EntAddr>> {
+    pub fn deserialize_scene(&mut self, man: &mut Manager, content: serde_json::Value) -> Result<SceneDeserResult, SceneSerdeError> {
         #[derive(Deserialize, Clone)]
         struct EleObj {
             name: String,
@@ -105,65 +105,99 @@ impl SceneSerde {
         #[derive(Deserialize, Clone)]
         struct EntObj {
             name: String,
-            parent_payload: serde_json::Value,
+            parent_payload: serde_json::Value, // This is a serialized form of EntAddr
             id: i64,
             eles: Vec<EleObj>
         }
 
-        let r = serde_json::from_value::<Vec<EntObj>>(content);
-        let ent_objs = match r {
-            Ok(v) => v,
-            Err(er) => {
-                println!("{:?}", er);
-                panic!();
-            }
-        };
+        struct EntDeserializeState {
+            payload: EntObj,
+            addr: EntAddr
+        }
         
         begin_deserialize();
 
-        let mut pairs = Vec::<(EntObj, EntAddr)>::new();
-
-        ent_objs
-        .iter()
-        .for_each(|ent| pairs.push((ent.clone(), set_mapping(Uuid::from_u128(ent.id as u128), ent.name.clone(), man))));
+        // Deserialize all entity data, create the actual entities, and associate the original data with the entities
+        let ent_states: Vec<EntDeserializeState> =
+        serde_json::from_value::<Vec<EntObj>>(content)
+        .map_err(|er| SceneSerdeError::SerdeError(er))?
+        .into_iter()
+        .map(|payload| {
+            let addr = set_mapping(Uuid::from_u128(payload.id as u128), payload.name.clone(), man);
+            EntDeserializeState { payload, addr }
+        })
+        .collect();
         
-        // deserialize and reparent to restore the hierarchy
-        ent_objs.iter().for_each(|ent| {
-            let parent_addr = serde_json::from_value::<EntAddr>(ent.parent_payload.clone()).unwrap();
-            man.reparent(map_id(Uuid::from_u128(ent.id as u128)), parent_addr).unwrap();
+        let mut reparent_failures = Vec::<String>::new();
+        // All entities have been created; we can now assign parent/child relations
+        ent_states.iter().for_each(|state| {
+            let parent_addr = serde_json::from_value::<EntAddr>(state.payload.parent_payload.clone()).unwrap();
+            let child_addr = map_id(Uuid::from_u128(state.payload.id as u128));
+            if let Err(_er) = man.reparent(child_addr.clone(), parent_addr.clone()) {
+                let child_ent = child_addr.get_ref().unwrap();
+                let parent_ent = parent_addr.get_ref().unwrap();
+                reparent_failures.push(format!("Making Child -> Parent relationship \"{}\" -> \"{}\" would have created a cycle", child_ent.name, parent_ent.name));
+            }
         });
+
+        if reparent_failures.len() > 0 {
+            // Clear out created entities
+            ent_states.into_iter().for_each(|state| {
+                man.destroy_entity(state.addr);
+            });
+            man.resolve();
+            end_deserialize();
+            return Err(SceneSerdeError::CycleError(reparent_failures.join("\n")));
+        }
 
         // First create empty elements in their respective entities so no EleAddr deserialize
         // fails due to the element not yet being added
-        
         struct EleAddrDeserializeState {
             ele: EleAddrErased,
             payload: serde_json::Value
         }
 
-        let refs =
-        pairs.iter().map(|pair| {
-            pair.0.eles.iter().map(|ele_obj| {
-                self.deserialize_empty_into(pair.1.clone(), ele_obj.name.clone())
+        let deser_attempts =
+        ent_states.iter().map(|pair| {
+            pair.payload.eles.iter().map(|ele_obj| {
+                self
+                .deserialize_empty_into(pair.addr.clone(), ele_obj.name.clone())
                 .map(|ele| EleAddrDeserializeState {
                     ele,
                     payload: ele_obj.payload.clone()
                 })
             })
-            .filter(|res| res.is_ok() )
-            .map(|res| res.ok().unwrap() )
-            .collect::<Vec<EleAddrDeserializeState>>()
+            .collect::<Vec<Result<EleAddrDeserializeState, SceneSerdeError>>>()
         })
         .flatten()
-        .collect::<Vec<EleAddrDeserializeState>>();
+        .collect::<Vec<Result<EleAddrDeserializeState, SceneSerdeError>>>();
 
-        refs.iter().for_each(|ele_state| {
-            ele_state.ele.clone().get_ref_mut().unwrap().ecs_deserialize(ele_state.payload.clone()).unwrap();
-        });
+        let ecs_deser_errors: Vec<SceneSerdeError> =
+        deser_attempts
+        .iter()
+        .filter(|attempt| attempt.is_ok())
+        .map(|attempt| attempt.as_ref().ok().unwrap())
+        .map(|state| {
+            state.ele.clone().get_ref_mut().unwrap().ecs_deserialize(state.payload.clone())
+        })
+        .filter(|state_attempt| state_attempt.is_err())
+        .map(|state_attempt| SceneSerdeError::SerdeError(state_attempt.err().unwrap()))
+        .collect();
 
         end_deserialize();
 
-        Some(pairs.iter().map(|pair| pair.1.clone()).collect())
+        let errors =
+        deser_attempts
+        .into_iter()
+        .filter(|state| state.is_err())
+        .map(|state| state.err().unwrap())
+        .chain(ecs_deser_errors.into_iter())
+        .collect();
+
+        Ok(SceneDeserResult {
+            ents: ent_states.into_iter().map(|pair| pair.addr).collect(),
+            errors
+        })
     }
     pub fn serialize_scene(&mut self, _man: &mut Manager, content: Vec<EntAddr>) -> serde_json::Value {
         #[derive(Serialize)]
@@ -184,7 +218,7 @@ impl SceneSerde {
                 let eles: Vec<serde_json::Value>=
                     erased_eles
                     .iter().filter_map(|ele| {
-                        self.serialize_element(ele.clone())
+                        self.serialize_element(&ele)
                     })
                     .collect();
 
