@@ -1,6 +1,7 @@
 use std::{any::{Any, TypeId}, collections::HashMap, fmt::Debug, rc::Rc};
 use serde::*;
 use uuid::Uuid;
+use std::fmt;
 
 use crate::element::*;
 use crate::entity::*;
@@ -11,6 +12,16 @@ pub enum SceneSerdeError {
     CycleError(String),
     MissingElementError(String),
     SerdeError(serde_json::Error)
+}
+
+impl fmt::Display for SceneSerdeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SceneSerdeError::CycleError(info) => write!(f, "{}", info),
+            SceneSerdeError::MissingElementError(info) => write!(f, "{}", info),
+            SceneSerdeError::SerdeError(err) => write!(f, "{}", err)
+        }
+    }
 }
 
 #[derive(Clone)]

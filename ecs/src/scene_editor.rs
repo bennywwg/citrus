@@ -52,17 +52,17 @@ impl SceneEditor {
         let val = match serde_json::from_str::<serde_json::Value>(&st) {
             Ok(val) => val,
             Err(err) => {
-                println!("{:?}", err);
+                println!("{}", err);
                 return;
             }
         };
         let res = scene.deserialize_scene(man, val);
         match res {
             Ok(val) => {
-                val.errors.iter().for_each(|err| println!("{:?}", err));
+                val.errors.iter().for_each(|err| println!("{}", err));
             },
             Err(err) => {
-                println!("{:?}", err);
+                println!("{}", err);
             }
         }
     }
