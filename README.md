@@ -1,6 +1,6 @@
 A simple and safe Entity Component (aka Element) System framework for rust.
 
-![example workflow](https://teamcity.spkit.org/app/rest/builds/affectedProject:name:Test/statusIcon)
+![example workflow](https://teamcity.spkit.org/app/rest/builds/affectedProject:name:Tiler2/statusIcon)
 
 # Structure
 
