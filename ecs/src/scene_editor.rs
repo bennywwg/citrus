@@ -62,7 +62,7 @@ impl SceneEditor {
                 val.errors.iter().for_each(|err| println!("{}", err));
             },
             Err(err) => {
-                println!("{}", err);
+                println!("Critical Failure, no scene content loaded:\n{}", err);
             }
         }
     }
@@ -77,12 +77,12 @@ impl SceneEditor {
         let truncated_id = format!("{}", ent_addr.get_ref_mut().unwrap().get_id().to_string());
 
         let mut opened: bool = true;
-        Window::new(ui, &*ImString::new(truncated_id.as_str()))
+        Window::new(&*ImString::new(truncated_id.as_str()))
         .collapsible(true)
         .resizable(true)
         .size([400.0, 400.0], Condition::FirstUseEver)
         .opened(&mut opened)
-        .build(move || {
+        .build(ui, move || {
             {
                 ui.input_text(":Name", &mut ent_addr.get_ref_mut().unwrap().name).build();
             }
@@ -160,7 +160,7 @@ impl SceneEditor {
 
     fn render_ent_recurse(&mut self, ui: &Ui, man: &mut Manager, ent: EntAddr, level: i32) {
         let cursor = ui.cursor_pos();
-        let id_token = ui.push_id(ent.get_ref().unwrap().get_id().to_string());
+        let id_token = ui.push_id(ent.get_ref().unwrap().get_id().as_u128() as i32);
 
         // Collapse or expand the entity hierarchy
         let needs_expansion_button = ent.get_ref().unwrap().get_children().len() > 0;
@@ -205,9 +205,9 @@ impl SceneEditor {
         }
         self.selected_list = new_selected;
 
-        Window::new(ui,"Manager")
+        Window::new("Manager")
         .position([0.0, 0.0], Condition::Always)
-        .build(|| {
+        .build(ui, || {
             if ui.button_with_size("Load Scene", [200_f32, 20_f32]) {
                 self.load_scene(scene, man, "./test.json");
                 /*

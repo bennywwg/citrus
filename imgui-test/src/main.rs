@@ -3,6 +3,7 @@ mod support;
 
 use ecs::{element::*, entity::*, scene_editor::*, scene_serde::*};
 use serde::*;
+use imgui_glium_renderer::imgui as imgui;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct A {

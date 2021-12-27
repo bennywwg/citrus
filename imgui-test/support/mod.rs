@@ -1,8 +1,11 @@
-use glium::{Display, glutin};
-use glium::glutin::event::{Event, WindowEvent};
-use glium::glutin::event_loop::{ControlFlow, EventLoop};
-use glium::glutin::window::WindowBuilder;
-use imgui_glium_renderer::glium::Surface;
+use imgui_glium_renderer::glium as glium;
+use imgui_glium_renderer::imgui as imgui;
+use glium::glutin as glutin;
+
+use glutin::event::{Event, WindowEvent};
+use glutin::event_loop::{ControlFlow, EventLoop};
+use glutin::window::WindowBuilder;
+use glium::Surface;
 use imgui::{FontConfig, FontGlyphRanges, FontSource, Ui};
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
@@ -33,7 +36,7 @@ pub fn init(title: &str) -> System {
         .with_title(title.to_owned())
         .with_inner_size(glutin::dpi::LogicalSize::new(1024f64, 768f64));
     let display =
-        Display::new(builder, context, &event_loop).expect("Failed to initialize display");
+        glium::Display::new(builder, context, &event_loop).expect("Failed to initialize display");
 
     let mut imgui = imgui::Context::create();
     imgui.set_ini_filename(None);
@@ -123,7 +126,12 @@ impl System {
                 let mut target = display.draw();
                 target.clear_color_srgb(1.0, 1.0, 1.0, 1.0);
                 platform.prepare_render(&ui, gl_window.window());
-                let draw_data = imgui.render();
+
+                let draw_data = unsafe {
+                    imgui::sys::igRender();
+                    &*(imgui::sys::igGetDrawData() as *mut imgui::DrawData)
+                };
+                
                 renderer
                     .render(&mut target, draw_data)
                     .expect("Rendering failed");

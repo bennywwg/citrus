@@ -1,5 +1,5 @@
 use clipboard::{ClipboardContext, ClipboardProvider};
-use imgui::ClipboardBackend;
+use imgui_glium_renderer::imgui::ClipboardBackend;
 
 pub struct ClipboardSupport(ClipboardContext);
 
