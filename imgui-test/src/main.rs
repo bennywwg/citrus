@@ -1,7 +1,7 @@
 #[path="../support/mod.rs"]
 mod support;
 
-use ecs::{element::*, entity::*, scene_editor::*, scene_serde::*};
+use citrus_ecs::{element::*, entity::*, scene_editor::*, scene_serde::*};
 use serde::*;
 use imgui_glium_renderer::imgui as imgui;
 
@@ -33,8 +33,8 @@ impl Element for B {
         self.val += 10;
     }
     fn fill_ui(&mut self, ui: &imgui::Ui, man: &mut Manager) {
-        ecs::editor_helpers::select_entity(&mut self.other, "other", ui, man);
-        ecs::editor_helpers::select_element(&mut self.ele, "ele", ui, man);
+        citrus_ecs::editor_helpers::select_entity(&mut self.other, "other", ui, man);
+        citrus_ecs::editor_helpers::select_element(&mut self.ele, "ele", ui, man);
     }
 }
 

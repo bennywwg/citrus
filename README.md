@@ -5,7 +5,7 @@ A simple and safe Entity Component (aka Element) System framework for rust.
 # Structure
 
 #### `trait Element`, `Entity`
-There are two core concepts in ecs: the struct Entity, and the trait Element. ecs allows instances of objects that implement Element to be attached to Entities, and safely manages the lifetime of both entities and the attached element instances. These objects are interacted with via the types listed below.
+There are two core concepts in citrus: the struct Entity, and the trait Element. citrus allows instances of objects that implement Element to be attached to Entities, and safely manages the lifetime of both entities and the attached element instances. These objects are interacted with via the types listed below.
 
 #### `ElementHolder`, `EntityHolder`
 These act as strong pointers that wrap a dynamically typed `Element` or `Entity`, respectively. `drop`ing these while any references to these objects exist will panic.
